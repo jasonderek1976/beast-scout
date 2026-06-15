@@ -2,24 +2,166 @@
 <html>
 <head>
   <title>BEAST Scout</title>
-  <link rel="stylesheet" href="style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #0f1a23;
+      color: white;
+      padding: 20px;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      margin: 6px 0;
+      font-size: 18px;
+      border-radius: 6px;
+      border: none;
+    }
+
+    #map {
+      height: 400px;
+      width: 100%;
+      margin-top: 15px;
+      border-radius: 8px;
+    }
+
+    .card {
+      background: #1d2d3a;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 15px;
+    }
+  </style>
 </head>
+
 <body>
   <h1>BEAST Scout</h1>
   <p>GPS Breadcrumb Prototype</p>
 
   <button onclick="startTracking()">Start Tracking</button>
   <button onclick="stopTracking()">Stop Tracking</button>
-  <button onclick="downloadCSV()">Download Breadcrumbs</button>
+  <button onclick="downloadBreadcrumbs()">Download Breadcrumbs</button>
 
   <div class="card">
-    <p><strong>Status:</strong> <span id="status">Waiting</span></p>
-    <p><strong>Latitude:</strong> <span id="lat">--</span></p>
-    <p><strong>Longitude:</strong> <span id="lon">--</span></p>
-    <p><strong>Accuracy:</strong> <span id="accuracy">--</span> meters</p>
-    <p><strong>Saved Points:</strong> <span id="count">0</span></p>
+    <p><strong>Status:</strong> <span id="status">Not tracking</span></p>
+    <p><strong>Latitude:</strong> <span id="lat">Waiting...</span></p>
+    <p><strong>Longitude:</strong> <span id="lon">Waiting...</span></p>
+    <p><strong>Accuracy:</strong> <span id="accuracy">Waiting...</span></p>
+    <p><strong>Saved Points:</strong> <span id="points">0</span></p>
   </div>
 
-  <script src="app.js"></script>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <script>
+    let watchId = null;
+    let breadcrumbs = [];
+
+    let map = L.map('map').setView([36.8179, -105.5544], 16);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19
+    }).addTo(map);
+
+    let pathLine = L.polyline([], {
+      weight: 5
+    }).addTo(map);
+
+    let currentMarker = null;
+
+    function startTracking() {
+      if (!navigator.geolocation) {
+        alert("GPS is not supported on this device.");
+        return;
+      }
+
+      document.getElementById("status").textContent = "Tracking";
+
+      watchId = navigator.geolocation.watchPosition(
+        savePosition,
+        showError,
+        {
+          enableHighAccuracy: true,
+          maximumAge: 0,
+          timeout: 10000
+        }
+      );
+    }
+
+    function stopTracking() {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+
+      document.getElementById("status").textContent = "Stopped";
+    }
+
+    function savePosition(position) {
+      let lat = position.coords.latitude;
+      let lon = position.coords.longitude;
+      let accuracy = position.coords.accuracy;
+      let time = new Date().toISOString();
+
+      let point = {
+        time: time,
+        latitude: lat,
+        longitude: lon,
+        accuracy: accuracy
+      };
+
+      breadcrumbs.push(point);
+
+      document.getElementById("lat").textContent = lat;
+      document.getElementById("lon").textContent = lon;
+      document.getElementById("accuracy").textContent = accuracy + " meters";
+      document.getElementById("points").textContent = breadcrumbs.length;
+
+      let mapPoint = [lat, lon];
+
+      pathLine.addLatLng(mapPoint);
+      map.setView(mapPoint, 17);
+
+      if (currentMarker === null) {
+        currentMarker = L.marker(mapPoint).addTo(map);
+      } else {
+        currentMarker.setLatLng(mapPoint);
+      }
+    }
+
+    function showError(error) {
+      alert("GPS error: " + error.message);
+    }
+
+    function downloadBreadcrumbs() {
+      if (breadcrumbs.length === 0) {
+        alert("No breadcrumbs saved yet.");
+        return;
+      }
+
+      let csv = "time,latitude,longitude,accuracy\n";
+
+      breadcrumbs.forEach(point => {
+        csv += `${point.time},${point.latitude},${point.longitude},${point.accuracy}\n`;
+      });
+
+      let blob = new Blob([csv], { type: "text/csv" });
+      let url = URL.createObjectURL(blob);
+
+      let link = document.createElement("a");
+      link.href = url;
+      link.download = "beast_scout_breadcrumbs.csv";
+      link.click();
+
+      URL.revokeObjectURL(url);
+    }
+  </script>
 </body>
 </html>
