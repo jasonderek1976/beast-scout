@@ -42,7 +42,7 @@
 
 <body>
   <h1>BEAST Scout</h1>
-  <p>GPS Breadcrumb Prototype</p>
+  <p>GPS Breadcrumb Prototype v0.4</p>
 
   <button onclick="startTracking()">Start Tracking</button>
   <button onclick="stopTracking()">Stop Tracking</button>
@@ -55,6 +55,10 @@
     <p><strong>Accuracy:</strong> <span id="accuracy">Waiting...</span></p>
     <p><strong>Saved Points:</strong> <span id="points">0</span></p>
     <p><strong>Distance Traveled:</strong> <span id="distance">0.00 miles</span></p>
+    <p><strong>Current Speed:</strong> <span id="currentSpeed">0.00 mph</span></p>
+    <p><strong>Average Speed:</strong> <span id="averageSpeed">0.00 mph</span></p>
+    <p><strong>Last GPS Update:</strong> <span id="lastUpdate">Waiting...</span></p>
+    <p><strong>Battery:</strong> <span id="battery">Not available</span></p>
   </div>
 
   <div id="map"></div>
@@ -65,6 +69,7 @@
     let watchId = null;
     let breadcrumbs = [];
     let totalDistanceMeters = 0;
+    let trackingStartTime = null;
 
     let map = L.map('map').setView([36.8179, -105.5544], 16);
 
@@ -78,6 +83,8 @@
 
     let currentMarker = null;
 
+    checkBattery();
+
     function startTracking() {
       if (!navigator.geolocation) {
         alert("GPS is not supported on this device.");
@@ -85,6 +92,10 @@
       }
 
       document.getElementById("status").textContent = "Tracking";
+
+      if (trackingStartTime === null) {
+        trackingStartTime = new Date();
+      }
 
       watchId = navigator.geolocation.watchPosition(
         savePosition,
@@ -110,14 +121,16 @@
       let lat = position.coords.latitude;
       let lon = position.coords.longitude;
       let accuracy = position.coords.accuracy;
-      let time = new Date().toISOString();
+      let time = new Date();
 
       let point = {
-        time: time,
+        time: time.toISOString(),
         latitude: lat,
         longitude: lon,
         accuracy: accuracy
       };
+
+      let currentSpeedMph = 0;
 
       if (breadcrumbs.length > 0) {
         let lastPoint = breadcrumbs[breadcrumbs.length - 1];
@@ -129,6 +142,13 @@
           lon
         );
 
+        let lastTime = new Date(lastPoint.time);
+        let secondsBetweenPoints = (time - lastTime) / 1000;
+
+        if (secondsBetweenPoints > 0) {
+          currentSpeedMph = metersPerSecondToMph(stepDistance / secondsBetweenPoints);
+        }
+
         totalDistanceMeters += stepDistance;
       }
 
@@ -136,11 +156,25 @@
 
       let totalDistanceMiles = totalDistanceMeters / 1609.344;
 
+      let hoursTracked = 0;
+      let averageSpeedMph = 0;
+
+      if (trackingStartTime !== null) {
+        hoursTracked = (time - trackingStartTime) / 1000 / 60 / 60;
+
+        if (hoursTracked > 0) {
+          averageSpeedMph = totalDistanceMiles / hoursTracked;
+        }
+      }
+
       document.getElementById("lat").textContent = lat;
       document.getElementById("lon").textContent = lon;
-      document.getElementById("accuracy").textContent = accuracy + " meters";
+      document.getElementById("accuracy").textContent = accuracy.toFixed(2) + " meters";
       document.getElementById("points").textContent = breadcrumbs.length;
       document.getElementById("distance").textContent = totalDistanceMiles.toFixed(2) + " miles";
+      document.getElementById("currentSpeed").textContent = currentSpeedMph.toFixed(2) + " mph";
+      document.getElementById("averageSpeed").textContent = averageSpeedMph.toFixed(2) + " mph";
+      document.getElementById("lastUpdate").textContent = time.toLocaleTimeString();
 
       let mapPoint = [lat, lon];
 
@@ -171,6 +205,29 @@
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
       return earthRadiusMeters * c;
+    }
+
+    function metersPerSecondToMph(metersPerSecond) {
+      return metersPerSecond * 2.236936;
+    }
+
+    function checkBattery() {
+      if ("getBattery" in navigator) {
+        navigator.getBattery().then(function(battery) {
+          updateBatteryDisplay(battery);
+
+          battery.addEventListener("levelchange", function() {
+            updateBatteryDisplay(battery);
+          });
+        });
+      } else {
+        document.getElementById("battery").textContent = "Not available on this browser";
+      }
+    }
+
+    function updateBatteryDisplay(battery) {
+      let batteryPercent = Math.round(battery.level * 100);
+      document.getElementById("battery").textContent = batteryPercent + "%";
     }
 
     function showError(error) {
