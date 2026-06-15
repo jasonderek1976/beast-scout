@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>BEAST Scout</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>BEAST Scout</h1>
+  <p>GPS Breadcrumb Prototype</p>
+
+  <button onclick="startTracking()">Start Tracking</button>
+  <button onclick="stopTracking()">Stop Tracking</button>
+  <button onclick="downloadCSV()">Download Breadcrumbs</button>
+
+  <div class="card">
+    <p><strong>Status:</strong> <span id="status">Waiting</span></p>
+    <p><strong>Latitude:</strong> <span id="lat">--</span></p>
+    <p><strong>Longitude:</strong> <span id="lon">--</span></p>
+    <p><strong>Accuracy:</strong> <span id="accuracy">--</span> meters</p>
+    <p><strong>Saved Points:</strong> <span id="count">0</span></p>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
