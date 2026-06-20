@@ -42,10 +42,11 @@
 
 <body>
   <h1>BEAST Scout</h1>
-  <p>GPS Breadcrumb Prototype v0.5</p>
+  <p>GPS Breadcrumb Prototype v0.6</p>
 
   <button onclick="startTracking()">Start Tracking</button>
   <button onclick="stopTracking()">Stop Tracking</button>
+  <button onclick="resetTracking()">Reset Tracking Data</button>
   <button onclick="downloadBreadcrumbs()">Download Breadcrumbs</button>
 
   <div class="card">
@@ -117,6 +118,36 @@
       }
 
       document.getElementById("status").textContent = "Stopped";
+    }
+
+    function resetTracking() {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+
+      breadcrumbs = [];
+      totalDistanceMeters = 0;
+      trackingStartTime = null;
+
+      pathLine.setLatLngs([]);
+
+      if (currentMarker !== null) {
+        map.removeLayer(currentMarker);
+        currentMarker = null;
+      }
+
+      document.getElementById("status").textContent = "Not tracking";
+      document.getElementById("lat").textContent = "Waiting...";
+      document.getElementById("lon").textContent = "Waiting...";
+      document.getElementById("accuracy").textContent = "Waiting...";
+      document.getElementById("altitude").textContent = "Waiting...";
+      document.getElementById("altitudeAccuracy").textContent = "Waiting...";
+      document.getElementById("points").textContent = "0";
+      document.getElementById("distance").textContent = "0.00 miles";
+      document.getElementById("currentSpeed").textContent = "0.00 mph";
+      document.getElementById("averageSpeed").textContent = "0.00 mph";
+      document.getElementById("lastUpdate").textContent = "Waiting...";
     }
 
     function savePosition(position) {
@@ -258,10 +289,10 @@
         return;
       }
 
-      let csv = "time,latitude,longitude,accuracy,altitude,altitudeAccuracy\n";
+      let csv = "time,latitude,longitude,accuracy,altitude,altitudeAccuracy,distanceMiles,currentSpeedMph\n";
 
-      breadcrumbs.forEach(point => {
-        csv += `${point.time},${point.latitude},${point.longitude},${point.accuracy},${point.altitude},${point.altitudeAccuracy}\n`;
+      breadcrumbs.forEach((point, index) => {
+        csv += `${point.time},${point.latitude},${point.longitude},${point.accuracy},${point.altitude},${point.altitudeAccuracy},${(totalDistanceMeters / 1609.344).toFixed(2)},0\n`;
       });
 
       let blob = new Blob([csv], { type: "text/csv" });
