@@ -42,7 +42,7 @@
 
 <body>
   <h1>BEAST Scout</h1>
-  <p>GPS Breadcrumb Prototype v0.6</p>
+  <p>GPS Breadcrumb Prototype v0.7</p>
 
   <button onclick="startTracking()">Start Tracking</button>
   <button onclick="stopTracking()">Stop Tracking</button>
@@ -56,6 +56,8 @@
     <p><strong>Accuracy:</strong> <span id="accuracy">Waiting...</span></p>
     <p><strong>Altitude:</strong> <span id="altitude">Waiting...</span></p>
     <p><strong>Altitude Accuracy:</strong> <span id="altitudeAccuracy">Waiting...</span></p>
+    <p><strong>Elevation Gain:</strong> <span id="elevationGain">0 ft</span></p>
+    <p><strong>Elevation Loss:</strong> <span id="elevationLoss">0 ft</span></p>
     <p><strong>Saved Points:</strong> <span id="points">0</span></p>
     <p><strong>Distance Traveled:</strong> <span id="distance">0.00 miles</span></p>
     <p><strong>Current Speed:</strong> <span id="currentSpeed">0.00 mph</span></p>
@@ -72,9 +74,13 @@
     let watchId = null;
     let breadcrumbs = [];
     let totalDistanceMeters = 0;
+    let totalElevationGainMeters = 0;
+    let totalElevationLossMeters = 0;
     let trackingStartTime = null;
 
-    let map = L.map('map').setView([36.8179, -105.5544], 16);
+    const elevationNoiseFilterMeters = 1.5;
+
+    let map = L.map('map').setView([30.63, -97.65], 16);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19
@@ -128,6 +134,8 @@
 
       breadcrumbs = [];
       totalDistanceMeters = 0;
+      totalElevationGainMeters = 0;
+      totalElevationLossMeters = 0;
       trackingStartTime = null;
 
       pathLine.setLatLngs([]);
@@ -143,6 +151,8 @@
       document.getElementById("accuracy").textContent = "Waiting...";
       document.getElementById("altitude").textContent = "Waiting...";
       document.getElementById("altitudeAccuracy").textContent = "Waiting...";
+      document.getElementById("elevationGain").textContent = "0 ft";
+      document.getElementById("elevationLoss").textContent = "0 ft";
       document.getElementById("points").textContent = "0";
       document.getElementById("distance").textContent = "0.00 miles";
       document.getElementById("currentSpeed").textContent = "0.00 mph";
@@ -187,11 +197,27 @@
         }
 
         totalDistanceMeters += stepDistance;
+
+        if (altitude !== null && lastPoint.altitude !== null) {
+          let elevationChange = altitude - lastPoint.altitude;
+
+          if (Math.abs(elevationChange) >= elevationNoiseFilterMeters) {
+            if (elevationChange > 0) {
+              totalElevationGainMeters += elevationChange;
+            }
+
+            if (elevationChange < 0) {
+              totalElevationLossMeters += Math.abs(elevationChange);
+            }
+          }
+        }
       }
 
       breadcrumbs.push(point);
 
       let totalDistanceMiles = totalDistanceMeters / 1609.344;
+      let elevationGainFeet = totalElevationGainMeters * 3.28084;
+      let elevationLossFeet = totalElevationLossMeters * 3.28084;
 
       let averageSpeedMph = 0;
 
@@ -219,6 +245,8 @@
         document.getElementById("altitudeAccuracy").textContent = altitudeAccuracy.toFixed(2) + " meters";
       }
 
+      document.getElementById("elevationGain").textContent = elevationGainFeet.toFixed(0) + " ft";
+      document.getElementById("elevationLoss").textContent = elevationLossFeet.toFixed(0) + " ft";
       document.getElementById("points").textContent = breadcrumbs.length;
       document.getElementById("distance").textContent = totalDistanceMiles.toFixed(2) + " miles";
       document.getElementById("currentSpeed").textContent = currentSpeedMph.toFixed(2) + " mph";
@@ -289,10 +317,10 @@
         return;
       }
 
-      let csv = "time,latitude,longitude,accuracy,altitude,altitudeAccuracy,distanceMiles,currentSpeedMph\n";
+      let csv = "time,latitude,longitude,accuracy,altitude,altitudeAccuracy,distanceMiles,elevationGainFeet,elevationLossFeet\n";
 
-      breadcrumbs.forEach((point, index) => {
-        csv += `${point.time},${point.latitude},${point.longitude},${point.accuracy},${point.altitude},${point.altitudeAccuracy},${(totalDistanceMeters / 1609.344).toFixed(2)},0\n`;
+      breadcrumbs.forEach(point => {
+        csv += `${point.time},${point.latitude},${point.longitude},${point.accuracy},${point.altitude},${point.altitudeAccuracy},${(totalDistanceMeters / 1609.344).toFixed(2)},${(totalElevationGainMeters * 3.28084).toFixed(0)},${(totalElevationLossMeters * 3.28084).toFixed(0)}\n`;
       });
 
       let blob = new Blob([csv], { type: "text/csv" });
