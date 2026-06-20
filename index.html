@@ -3,7 +3,6 @@
 <head>
   <title>BEAST Scout</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 
   <style>
@@ -37,20 +36,30 @@
       border-radius: 8px;
       margin-top: 15px;
     }
+
+    pre {
+      white-space: pre-wrap;
+      background: #081018;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 14px;
+    }
   </style>
 </head>
 
 <body>
   <h1>BEAST Scout</h1>
-  <p>GPS Breadcrumb Prototype v0.7</p>
+  <p>GPS Breadcrumb Prototype v0.8</p>
 
   <button onclick="startTracking()">Start Tracking</button>
   <button onclick="stopTracking()">Stop Tracking</button>
   <button onclick="resetTracking()">Reset Tracking Data</button>
+  <button onclick="generateSitrep()">Generate Auto SITREP</button>
   <button onclick="downloadBreadcrumbs()">Download Breadcrumbs</button>
 
   <div class="card">
     <p><strong>Status:</strong> <span id="status">Not tracking</span></p>
+    <p><strong>Movement Status:</strong> <span id="movementStatus">Unknown</span></p>
     <p><strong>Latitude:</strong> <span id="lat">Waiting...</span></p>
     <p><strong>Longitude:</strong> <span id="lon">Waiting...</span></p>
     <p><strong>Accuracy:</strong> <span id="accuracy">Waiting...</span></p>
@@ -62,11 +71,19 @@
     <p><strong>Distance Traveled:</strong> <span id="distance">0.00 miles</span></p>
     <p><strong>Current Speed:</strong> <span id="currentSpeed">0.00 mph</span></p>
     <p><strong>Average Speed:</strong> <span id="averageSpeed">0.00 mph</span></p>
+    <p><strong>Direction of Travel:</strong> <span id="heading">Unknown</span></p>
+    <p><strong>Last Movement:</strong> <span id="lastMovement">Waiting...</span></p>
     <p><strong>Last GPS Update:</strong> <span id="lastUpdate">Waiting...</span></p>
+    <p><strong>Last GPS Age:</strong> <span id="gpsAge">Waiting...</span></p>
     <p><strong>Battery:</strong> <span id="battery">Not available</span></p>
   </div>
 
   <div id="map"></div>
+
+  <div class="card">
+    <h2>Auto SITREP</h2>
+    <pre id="sitrep">No SITREP generated yet.</pre>
+  </div>
 
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
@@ -77,8 +94,15 @@
     let totalElevationGainMeters = 0;
     let totalElevationLossMeters = 0;
     let trackingStartTime = null;
+    let lastGpsUpdateTime = null;
+    let lastMovementTime = null;
+    let currentHeadingText = "Unknown";
+    let currentMovementStatus = "Unknown";
+    let latestPosition = null;
 
     const elevationNoiseFilterMeters = 1.5;
+    const movementThresholdMeters = 10;
+    const stationaryMinutesThreshold = 5;
 
     let map = L.map('map').setView([30.63, -97.65], 16);
 
@@ -93,6 +117,7 @@
     let currentMarker = null;
 
     checkBattery();
+    setInterval(updateGpsAgeDisplay, 1000);
 
     function startTracking() {
       if (!navigator.geolocation) {
@@ -137,6 +162,11 @@
       totalElevationGainMeters = 0;
       totalElevationLossMeters = 0;
       trackingStartTime = null;
+      lastGpsUpdateTime = null;
+      lastMovementTime = null;
+      currentHeadingText = "Unknown";
+      currentMovementStatus = "Unknown";
+      latestPosition = null;
 
       pathLine.setLatLngs([]);
 
@@ -146,6 +176,7 @@
       }
 
       document.getElementById("status").textContent = "Not tracking";
+      document.getElementById("movementStatus").textContent = "Unknown";
       document.getElementById("lat").textContent = "Waiting...";
       document.getElementById("lon").textContent = "Waiting...";
       document.getElementById("accuracy").textContent = "Waiting...";
@@ -157,7 +188,11 @@
       document.getElementById("distance").textContent = "0.00 miles";
       document.getElementById("currentSpeed").textContent = "0.00 mph";
       document.getElementById("averageSpeed").textContent = "0.00 mph";
+      document.getElementById("heading").textContent = "Unknown";
+      document.getElementById("lastMovement").textContent = "Waiting...";
       document.getElementById("lastUpdate").textContent = "Waiting...";
+      document.getElementById("gpsAge").textContent = "Waiting...";
+      document.getElementById("sitrep").textContent = "No SITREP generated yet.";
     }
 
     function savePosition(position) {
@@ -167,6 +202,9 @@
       let altitude = position.coords.altitude;
       let altitudeAccuracy = position.coords.altitudeAccuracy;
       let time = new Date();
+
+      latestPosition = position;
+      lastGpsUpdateTime = time;
 
       let point = {
         time: time.toISOString(),
@@ -198,6 +236,19 @@
 
         totalDistanceMeters += stepDistance;
 
+        if (stepDistance >= movementThresholdMeters) {
+          lastMovementTime = time;
+          currentMovementStatus = "Moving";
+          currentHeadingText = calculateHeadingText(
+            lastPoint.latitude,
+            lastPoint.longitude,
+            lat,
+            lon
+          );
+        } else {
+          currentMovementStatus = getStationaryStatus(time);
+        }
+
         if (altitude !== null && lastPoint.altitude !== null) {
           let elevationChange = altitude - lastPoint.altitude;
 
@@ -211,6 +262,9 @@
             }
           }
         }
+      } else {
+        lastMovementTime = time;
+        currentMovementStatus = "Starting";
       }
 
       breadcrumbs.push(point);
@@ -251,6 +305,9 @@
       document.getElementById("distance").textContent = totalDistanceMiles.toFixed(2) + " miles";
       document.getElementById("currentSpeed").textContent = currentSpeedMph.toFixed(2) + " mph";
       document.getElementById("averageSpeed").textContent = averageSpeedMph.toFixed(2) + " mph";
+      document.getElementById("heading").textContent = currentHeadingText;
+      document.getElementById("movementStatus").textContent = currentMovementStatus;
+      document.getElementById("lastMovement").textContent = formatTimeAgo(lastMovementTime);
       document.getElementById("lastUpdate").textContent = time.toLocaleTimeString();
 
       let mapPoint = [lat, lon];
@@ -263,6 +320,74 @@
       } else {
         currentMarker.setLatLng(mapPoint);
       }
+    }
+
+    function getStationaryStatus(currentTime) {
+      if (lastMovementTime === null) {
+        return "Unknown";
+      }
+
+      let minutesSinceMovement = (currentTime - lastMovementTime) / 1000 / 60;
+
+      if (minutesSinceMovement >= stationaryMinutesThreshold) {
+        return "Stationary";
+      }
+
+      return "Minimal Movement";
+    }
+
+    function updateGpsAgeDisplay() {
+      document.getElementById("gpsAge").textContent = formatTimeAgo(lastGpsUpdateTime);
+      document.getElementById("lastMovement").textContent = formatTimeAgo(lastMovementTime);
+    }
+
+    function formatTimeAgo(dateValue) {
+      if (dateValue === null) {
+        return "Waiting...";
+      }
+
+      let now = new Date();
+      let seconds = Math.floor((now - dateValue) / 1000);
+
+      if (seconds < 60) {
+        return seconds + " seconds ago";
+      }
+
+      let minutes = Math.floor(seconds / 60);
+
+      if (minutes < 60) {
+        return minutes + " minutes ago";
+      }
+
+      let hours = Math.floor(minutes / 60);
+      return hours + " hours ago";
+    }
+
+    function calculateHeadingText(lat1, lon1, lat2, lon2) {
+      let bearing = calculateBearingDegrees(lat1, lon1, lat2, lon2);
+
+      if (bearing >= 337.5 || bearing < 22.5) return "North";
+      if (bearing >= 22.5 && bearing < 67.5) return "Northeast";
+      if (bearing >= 67.5 && bearing < 112.5) return "East";
+      if (bearing >= 112.5 && bearing < 157.5) return "Southeast";
+      if (bearing >= 157.5 && bearing < 202.5) return "South";
+      if (bearing >= 202.5 && bearing < 247.5) return "Southwest";
+      if (bearing >= 247.5 && bearing < 292.5) return "West";
+      return "Northwest";
+    }
+
+    function calculateBearingDegrees(lat1, lon1, lat2, lon2) {
+      let startLat = lat1 * Math.PI / 180;
+      let endLat = lat2 * Math.PI / 180;
+      let differenceLon = (lon2 - lon1) * Math.PI / 180;
+
+      let y = Math.sin(differenceLon) * Math.cos(endLat);
+      let x =
+        Math.cos(startLat) * Math.sin(endLat) -
+        Math.sin(startLat) * Math.cos(endLat) * Math.cos(differenceLon);
+
+      let bearing = Math.atan2(y, x) * 180 / Math.PI;
+      return (bearing + 360) % 360;
     }
 
     function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
@@ -286,6 +411,62 @@
 
     function metersPerSecondToMph(metersPerSecond) {
       return metersPerSecond * 2.236936;
+    }
+
+    function generateSitrep() {
+      if (breadcrumbs.length === 0) {
+        document.getElementById("sitrep").textContent = "No location data available yet.";
+        return;
+      }
+
+      let lastPoint = breadcrumbs[breadcrumbs.length - 1];
+      let distanceMiles = totalDistanceMeters / 1609.344;
+      let elevationGainFeet = totalElevationGainMeters * 3.28084;
+      let elevationLossFeet = totalElevationLossMeters * 3.28084;
+
+      let sitrep =
+`BEAST AUTO SITREP
+
+Status:
+${currentMovementStatus}
+
+Last GPS:
+${lastPoint.latitude}, ${lastPoint.longitude}
+
+GPS Accuracy:
+${lastPoint.accuracy} meters
+
+Altitude:
+${lastPoint.altitude === null ? "Not available" : lastPoint.altitude.toFixed(2) + " meters"}
+
+Altitude Accuracy:
+${lastPoint.altitudeAccuracy === null ? "Not available" : lastPoint.altitudeAccuracy.toFixed(2) + " meters"}
+
+Distance Traveled:
+${distanceMiles.toFixed(2)} miles
+
+Elevation Gain:
+${elevationGainFeet.toFixed(0)} ft
+
+Elevation Loss:
+${elevationLossFeet.toFixed(0)} ft
+
+Direction of Travel:
+${currentHeadingText}
+
+Last Movement:
+${formatTimeAgo(lastMovementTime)}
+
+Last GPS Update:
+${formatTimeAgo(lastGpsUpdateTime)}
+
+Saved Breadcrumb Points:
+${breadcrumbs.length}
+
+Generated:
+${new Date().toLocaleString()}`;
+
+      document.getElementById("sitrep").textContent = sitrep;
     }
 
     function checkBattery() {
@@ -317,10 +498,10 @@
         return;
       }
 
-      let csv = "time,latitude,longitude,accuracy,altitude,altitudeAccuracy,distanceMiles,elevationGainFeet,elevationLossFeet\n";
+      let csv = "time,latitude,longitude,accuracy,altitude,altitudeAccuracy,distanceMiles,elevationGainFeet,elevationLossFeet,movementStatus,heading,lastMovement,lastGpsAge\n";
 
       breadcrumbs.forEach(point => {
-        csv += `${point.time},${point.latitude},${point.longitude},${point.accuracy},${point.altitude},${point.altitudeAccuracy},${(totalDistanceMeters / 1609.344).toFixed(2)},${(totalElevationGainMeters * 3.28084).toFixed(0)},${(totalElevationLossMeters * 3.28084).toFixed(0)}\n`;
+        csv += `${point.time},${point.latitude},${point.longitude},${point.accuracy},${point.altitude},${point.altitudeAccuracy},${(totalDistanceMeters / 1609.344).toFixed(2)},${(totalElevationGainMeters * 3.28084).toFixed(0)},${(totalElevationLossMeters * 3.28084).toFixed(0)},${currentMovementStatus},${currentHeadingText},${formatTimeAgo(lastMovementTime)},${formatTimeAgo(lastGpsUpdateTime)}\n`;
       });
 
       let blob = new Blob([csv], { type: "text/csv" });
