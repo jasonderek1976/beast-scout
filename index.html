@@ -42,7 +42,7 @@
 
 <body>
   <h1>BEAST Scout</h1>
-  <p>GPS Breadcrumb Prototype v0.4</p>
+  <p>GPS Breadcrumb Prototype v0.5</p>
 
   <button onclick="startTracking()">Start Tracking</button>
   <button onclick="stopTracking()">Stop Tracking</button>
@@ -53,6 +53,8 @@
     <p><strong>Latitude:</strong> <span id="lat">Waiting...</span></p>
     <p><strong>Longitude:</strong> <span id="lon">Waiting...</span></p>
     <p><strong>Accuracy:</strong> <span id="accuracy">Waiting...</span></p>
+    <p><strong>Altitude:</strong> <span id="altitude">Waiting...</span></p>
+    <p><strong>Altitude Accuracy:</strong> <span id="altitudeAccuracy">Waiting...</span></p>
     <p><strong>Saved Points:</strong> <span id="points">0</span></p>
     <p><strong>Distance Traveled:</strong> <span id="distance">0.00 miles</span></p>
     <p><strong>Current Speed:</strong> <span id="currentSpeed">0.00 mph</span></p>
@@ -121,13 +123,17 @@
       let lat = position.coords.latitude;
       let lon = position.coords.longitude;
       let accuracy = position.coords.accuracy;
+      let altitude = position.coords.altitude;
+      let altitudeAccuracy = position.coords.altitudeAccuracy;
       let time = new Date();
 
       let point = {
         time: time.toISOString(),
         latitude: lat,
         longitude: lon,
-        accuracy: accuracy
+        accuracy: accuracy,
+        altitude: altitude,
+        altitudeAccuracy: altitudeAccuracy
       };
 
       let currentSpeedMph = 0;
@@ -156,11 +162,10 @@
 
       let totalDistanceMiles = totalDistanceMeters / 1609.344;
 
-      let hoursTracked = 0;
       let averageSpeedMph = 0;
 
       if (trackingStartTime !== null) {
-        hoursTracked = (time - trackingStartTime) / 1000 / 60 / 60;
+        let hoursTracked = (time - trackingStartTime) / 1000 / 60 / 60;
 
         if (hoursTracked > 0) {
           averageSpeedMph = totalDistanceMiles / hoursTracked;
@@ -170,6 +175,19 @@
       document.getElementById("lat").textContent = lat;
       document.getElementById("lon").textContent = lon;
       document.getElementById("accuracy").textContent = accuracy.toFixed(2) + " meters";
+
+      if (altitude === null) {
+        document.getElementById("altitude").textContent = "Not available";
+      } else {
+        document.getElementById("altitude").textContent = altitude.toFixed(2) + " meters";
+      }
+
+      if (altitudeAccuracy === null) {
+        document.getElementById("altitudeAccuracy").textContent = "Not available";
+      } else {
+        document.getElementById("altitudeAccuracy").textContent = altitudeAccuracy.toFixed(2) + " meters";
+      }
+
       document.getElementById("points").textContent = breadcrumbs.length;
       document.getElementById("distance").textContent = totalDistanceMiles.toFixed(2) + " miles";
       document.getElementById("currentSpeed").textContent = currentSpeedMph.toFixed(2) + " mph";
@@ -240,10 +258,10 @@
         return;
       }
 
-      let csv = "time,latitude,longitude,accuracy\n";
+      let csv = "time,latitude,longitude,accuracy,altitude,altitudeAccuracy\n";
 
       breadcrumbs.forEach(point => {
-        csv += `${point.time},${point.latitude},${point.longitude},${point.accuracy}\n`;
+        csv += `${point.time},${point.latitude},${point.longitude},${point.accuracy},${point.altitude},${point.altitudeAccuracy}\n`;
       });
 
       let blob = new Blob([csv], { type: "text/csv" });
