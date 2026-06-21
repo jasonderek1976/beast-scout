@@ -49,7 +49,7 @@
 
 <body>
   <h1>BEAST Scout</h1>
-  <p>GPS Breadcrumb Prototype v0.8</p>
+  <p>GPS Breadcrumb Prototype v0.9</p>
 
   <button onclick="startTracking()">Start Tracking</button>
   <button onclick="stopTracking()">Stop Tracking</button>
@@ -60,11 +60,17 @@
   <div class="card">
     <p><strong>Status:</strong> <span id="status">Not tracking</span></p>
     <p><strong>Movement Status:</strong> <span id="movementStatus">Unknown</span></p>
+    <p><strong>Location Confidence:</strong> <span id="locationConfidence">Unknown</span></p>
+    <p><strong>Travel Trend:</strong> <span id="travelTrend">Unknown</span></p>
+    <p><strong>Travel Trend Confidence:</strong> <span id="travelTrendConfidence">Unknown</span></p>
+    <p><strong>Estimated Search Radius:</strong> <span id="searchRadius">Unknown</span></p>
+
     <p><strong>Latitude:</strong> <span id="lat">Waiting...</span></p>
     <p><strong>Longitude:</strong> <span id="lon">Waiting...</span></p>
     <p><strong>Accuracy:</strong> <span id="accuracy">Waiting...</span></p>
     <p><strong>Altitude:</strong> <span id="altitude">Waiting...</span></p>
     <p><strong>Altitude Accuracy:</strong> <span id="altitudeAccuracy">Waiting...</span></p>
+
     <p><strong>Elevation Gain:</strong> <span id="elevationGain">0 ft</span></p>
     <p><strong>Elevation Loss:</strong> <span id="elevationLoss">0 ft</span></p>
     <p><strong>Saved Points:</strong> <span id="points">0</span></p>
@@ -96,11 +102,16 @@
     let trackingStartTime = null;
     let lastGpsUpdateTime = null;
     let lastMovementTime = null;
+
     let currentHeadingText = "Unknown";
     let currentMovementStatus = "Unknown";
-    let latestPosition = null;
+    let currentLocationConfidenceText = "Unknown";
+    let currentLocationConfidenceScore = 0;
+    let currentTravelTrendText = "Unknown";
+    let currentTravelTrendConfidenceScore = 0;
+    let currentSearchRadiusMiles = 0;
 
-    const elevationNoiseFilterMeters = 1.5;
+    const elevationNoiseFilterMeters = 4.0;
     const movementThresholdMeters = 10;
     const stationaryMinutesThreshold = 5;
 
@@ -110,14 +121,11 @@
       maxZoom: 19
     }).addTo(map);
 
-    let pathLine = L.polyline([], {
-      weight: 5
-    }).addTo(map);
-
+    let pathLine = L.polyline([], { weight: 5 }).addTo(map);
     let currentMarker = null;
 
     checkBattery();
-    setInterval(updateGpsAgeDisplay, 1000);
+    setInterval(updateLiveTimers, 1000);
 
     function startTracking() {
       if (!navigator.geolocation) {
@@ -164,9 +172,14 @@
       trackingStartTime = null;
       lastGpsUpdateTime = null;
       lastMovementTime = null;
+
       currentHeadingText = "Unknown";
       currentMovementStatus = "Unknown";
-      latestPosition = null;
+      currentLocationConfidenceText = "Unknown";
+      currentLocationConfidenceScore = 0;
+      currentTravelTrendText = "Unknown";
+      currentTravelTrendConfidenceScore = 0;
+      currentSearchRadiusMiles = 0;
 
       pathLine.setLatLngs([]);
 
@@ -177,6 +190,10 @@
 
       document.getElementById("status").textContent = "Not tracking";
       document.getElementById("movementStatus").textContent = "Unknown";
+      document.getElementById("locationConfidence").textContent = "Unknown";
+      document.getElementById("travelTrend").textContent = "Unknown";
+      document.getElementById("travelTrendConfidence").textContent = "Unknown";
+      document.getElementById("searchRadius").textContent = "Unknown";
       document.getElementById("lat").textContent = "Waiting...";
       document.getElementById("lon").textContent = "Waiting...";
       document.getElementById("accuracy").textContent = "Waiting...";
@@ -203,8 +220,9 @@
       let altitudeAccuracy = position.coords.altitudeAccuracy;
       let time = new Date();
 
-      latestPosition = position;
       lastGpsUpdateTime = time;
+
+      let currentSpeedMph = 0;
 
       let point = {
         time: time.toISOString(),
@@ -212,10 +230,10 @@
         longitude: lon,
         accuracy: accuracy,
         altitude: altitude,
-        altitudeAccuracy: altitudeAccuracy
+        altitudeAccuracy: altitudeAccuracy,
+        movementStatus: currentMovementStatus,
+        heading: currentHeadingText
       };
-
-      let currentSpeedMph = 0;
 
       if (breadcrumbs.length > 0) {
         let lastPoint = breadcrumbs[breadcrumbs.length - 1];
@@ -255,9 +273,7 @@
           if (Math.abs(elevationChange) >= elevationNoiseFilterMeters) {
             if (elevationChange > 0) {
               totalElevationGainMeters += elevationChange;
-            }
-
-            if (elevationChange < 0) {
+            } else {
               totalElevationLossMeters += Math.abs(elevationChange);
             }
           }
@@ -267,46 +283,45 @@
         currentMovementStatus = "Starting";
       }
 
+      point.movementStatus = currentMovementStatus;
+      point.heading = currentHeadingText;
+
       breadcrumbs.push(point);
 
       let totalDistanceMiles = totalDistanceMeters / 1609.344;
       let elevationGainFeet = totalElevationGainMeters * 3.28084;
       let elevationLossFeet = totalElevationLossMeters * 3.28084;
+      let averageSpeedMph = calculateAverageSpeedMph(time, totalDistanceMiles);
 
-      let averageSpeedMph = 0;
+      updateConfidence(accuracy, altitudeAccuracy);
+      updateTravelTrend();
+      updateSearchRadius(averageSpeedMph);
 
-      if (trackingStartTime !== null) {
-        let hoursTracked = (time - trackingStartTime) / 1000 / 60 / 60;
+      document.getElementById("lat").textContent = lat.toFixed(6);
+      document.getElementById("lon").textContent = lon.toFixed(6);
+      document.getElementById("accuracy").textContent = accuracy.toFixed(1) + " m";
 
-        if (hoursTracked > 0) {
-          averageSpeedMph = totalDistanceMiles / hoursTracked;
-        }
-      }
+      document.getElementById("altitude").textContent =
+        altitude === null ? "Not available" : altitude.toFixed(1) + " m";
 
-      document.getElementById("lat").textContent = lat;
-      document.getElementById("lon").textContent = lon;
-      document.getElementById("accuracy").textContent = accuracy.toFixed(2) + " meters";
-
-      if (altitude === null) {
-        document.getElementById("altitude").textContent = "Not available";
-      } else {
-        document.getElementById("altitude").textContent = altitude.toFixed(2) + " meters";
-      }
-
-      if (altitudeAccuracy === null) {
-        document.getElementById("altitudeAccuracy").textContent = "Not available";
-      } else {
-        document.getElementById("altitudeAccuracy").textContent = altitudeAccuracy.toFixed(2) + " meters";
-      }
+      document.getElementById("altitudeAccuracy").textContent =
+        altitudeAccuracy === null ? "Not available" : altitudeAccuracy.toFixed(1) + " m";
 
       document.getElementById("elevationGain").textContent = elevationGainFeet.toFixed(0) + " ft";
       document.getElementById("elevationLoss").textContent = elevationLossFeet.toFixed(0) + " ft";
       document.getElementById("points").textContent = breadcrumbs.length;
-      document.getElementById("distance").textContent = totalDistanceMiles.toFixed(2) + " miles";
+      document.getElementById("distance").textContent = totalDistanceMiles.toFixed(2) + " mi";
       document.getElementById("currentSpeed").textContent = currentSpeedMph.toFixed(2) + " mph";
       document.getElementById("averageSpeed").textContent = averageSpeedMph.toFixed(2) + " mph";
       document.getElementById("heading").textContent = currentHeadingText;
       document.getElementById("movementStatus").textContent = currentMovementStatus;
+      document.getElementById("locationConfidence").textContent =
+        currentLocationConfidenceText + " (" + currentLocationConfidenceScore + "%)";
+      document.getElementById("travelTrend").textContent = currentTravelTrendText;
+      document.getElementById("travelTrendConfidence").textContent =
+        currentTravelTrendConfidenceScore + "%";
+      document.getElementById("searchRadius").textContent =
+        currentSearchRadiusMiles.toFixed(2) + " mi";
       document.getElementById("lastMovement").textContent = formatTimeAgo(lastMovementTime);
       document.getElementById("lastUpdate").textContent = time.toLocaleTimeString();
 
@@ -322,10 +337,187 @@
       }
     }
 
-    function getStationaryStatus(currentTime) {
-      if (lastMovementTime === null) {
-        return "Unknown";
+    function updateConfidence(accuracy, altitudeAccuracy) {
+      let score = 0;
+
+      if (accuracy <= 5) score += 40;
+      else if (accuracy <= 10) score += 30;
+      else if (accuracy <= 25) score += 20;
+      else score += 5;
+
+      let gpsAgeSeconds = getSecondsSince(lastGpsUpdateTime);
+
+      if (gpsAgeSeconds <= 30) score += 30;
+      else if (gpsAgeSeconds <= 120) score += 20;
+      else if (gpsAgeSeconds <= 300) score += 10;
+
+      if (breadcrumbs.length >= 50) score += 20;
+      else if (breadcrumbs.length >= 20) score += 15;
+      else if (breadcrumbs.length >= 5) score += 10;
+
+      if (altitudeAccuracy !== null && altitudeAccuracy <= 10) {
+        score += 10;
       }
+
+      if (score > 100) score = 100;
+
+      currentLocationConfidenceScore = score;
+
+      if (score >= 85) currentLocationConfidenceText = "HIGH";
+      else if (score >= 65) currentLocationConfidenceText = "MEDIUM";
+      else currentLocationConfidenceText = "LOW";
+    }
+
+    function updateTravelTrend() {
+      let usablePoints = getMovementPoints();
+
+      if (usablePoints.length < 4) {
+        currentTravelTrendText = "Not enough movement data";
+        currentTravelTrendConfidenceScore = 0;
+        return;
+      }
+
+      let recentPoints = usablePoints.slice(-8);
+      let headings = [];
+
+      for (let i = 1; i < recentPoints.length; i++) {
+        let bearing = calculateBearingDegrees(
+          recentPoints[i - 1].latitude,
+          recentPoints[i - 1].longitude,
+          recentPoints[i].latitude,
+          recentPoints[i].longitude
+        );
+
+        headings.push(bearing);
+      }
+
+      let averageBearing = circularMeanDegrees(headings);
+      let averageDifference = averageBearingDifference(headings, averageBearing);
+
+      let trendDirection = bearingToText(averageBearing);
+
+      if (averageDifference <= 30) {
+        currentTravelTrendText = "Consistent " + trendDirection;
+        currentTravelTrendConfidenceScore = Math.round(100 - averageDifference);
+      } else if (averageDifference <= 70) {
+        currentTravelTrendText = "Mostly " + trendDirection;
+        currentTravelTrendConfidenceScore = Math.round(85 - averageDifference / 2);
+      } else {
+        currentTravelTrendText = "Erratic movement";
+        currentTravelTrendConfidenceScore = Math.round(Math.max(25, 80 - averageDifference / 2));
+      }
+    }
+
+    function updateSearchRadius(averageSpeedMph) {
+      if (lastGpsUpdateTime === null) {
+        currentSearchRadiusMiles = 0;
+        return;
+      }
+
+      let gpsAgeHours = getSecondsSince(lastGpsUpdateTime) / 3600;
+      let baseRadius = averageSpeedMph * gpsAgeHours;
+
+      let uncertaintyBuffer = 0.03;
+
+      if (currentLocationConfidenceScore < 65) {
+        uncertaintyBuffer = 0.15;
+      } else if (currentLocationConfidenceScore < 85) {
+        uncertaintyBuffer = 0.08;
+      }
+
+      currentSearchRadiusMiles = baseRadius + uncertaintyBuffer;
+    }
+
+    function generateSitrep() {
+      if (breadcrumbs.length === 0) {
+        document.getElementById("sitrep").textContent = "No location data available yet.";
+        return;
+      }
+
+      let lastPoint = breadcrumbs[breadcrumbs.length - 1];
+      let distanceMiles = totalDistanceMeters / 1609.344;
+      let elevationGainFeet = totalElevationGainMeters * 3.28084;
+      let elevationLossFeet = totalElevationLossMeters * 3.28084;
+
+      let sitrep =
+`BEAST AUTO SITREP
+
+Subject Status:
+${currentMovementStatus}
+
+Location Confidence:
+${currentLocationConfidenceText} (${currentLocationConfidenceScore}%)
+
+Travel Trend:
+${currentTravelTrendText}
+
+Travel Trend Confidence:
+${currentTravelTrendConfidenceScore}%
+
+Estimated Search Radius:
+${currentSearchRadiusMiles.toFixed(2)} mi
+
+Last Known Location:
+${lastPoint.latitude.toFixed(6)}
+${lastPoint.longitude.toFixed(6)}
+
+GPS Accuracy:
+${lastPoint.accuracy.toFixed(1)} m
+
+Altitude:
+${lastPoint.altitude === null ? "Not available" : lastPoint.altitude.toFixed(1) + " m"}
+
+Altitude Accuracy:
+${lastPoint.altitudeAccuracy === null ? "Not available" : lastPoint.altitudeAccuracy.toFixed(1) + " m"}
+
+Direction of Travel:
+${currentHeadingText}
+
+Distance Traveled:
+${distanceMiles.toFixed(2)} mi
+
+Elevation Change:
++${elevationGainFeet.toFixed(0)} ft / -${elevationLossFeet.toFixed(0)} ft
+
+Last Movement:
+${formatTimeAgo(lastMovementTime)}
+
+Last GPS Update:
+${formatTimeAgo(lastGpsUpdateTime)}
+
+Saved Breadcrumb Points:
+${breadcrumbs.length}
+
+Generated:
+${new Date().toLocaleString()}`;
+
+      document.getElementById("sitrep").textContent = sitrep;
+    }
+
+    function getMovementPoints() {
+      let points = [];
+
+      for (let i = 1; i < breadcrumbs.length; i++) {
+        let previous = breadcrumbs[i - 1];
+        let current = breadcrumbs[i];
+
+        let distance = calculateDistanceMeters(
+          previous.latitude,
+          previous.longitude,
+          current.latitude,
+          current.longitude
+        );
+
+        if (distance >= movementThresholdMeters) {
+          points.push(current);
+        }
+      }
+
+      return points;
+    }
+
+    function getStationaryStatus(currentTime) {
+      if (lastMovementTime === null) return "Unknown";
 
       let minutesSinceMovement = (currentTime - lastMovementTime) / 1000 / 60;
 
@@ -336,36 +528,60 @@
       return "Minimal Movement";
     }
 
-    function updateGpsAgeDisplay() {
+    function updateLiveTimers() {
       document.getElementById("gpsAge").textContent = formatTimeAgo(lastGpsUpdateTime);
       document.getElementById("lastMovement").textContent = formatTimeAgo(lastMovementTime);
+      updateSearchRadiusFromCurrentData();
+    }
+
+    function updateSearchRadiusFromCurrentData() {
+      if (breadcrumbs.length === 0 || trackingStartTime === null) return;
+
+      let distanceMiles = totalDistanceMeters / 1609.344;
+      let now = new Date();
+      let averageSpeedMph = calculateAverageSpeedMph(now, distanceMiles);
+
+      updateSearchRadius(averageSpeedMph);
+
+      document.getElementById("searchRadius").textContent =
+        currentSearchRadiusMiles.toFixed(2) + " mi";
+    }
+
+    function calculateAverageSpeedMph(currentTime, distanceMiles) {
+      if (trackingStartTime === null) return 0;
+
+      let hoursTracked = (currentTime - trackingStartTime) / 1000 / 60 / 60;
+
+      if (hoursTracked <= 0) return 0;
+
+      return distanceMiles / hoursTracked;
     }
 
     function formatTimeAgo(dateValue) {
-      if (dateValue === null) {
-        return "Waiting...";
-      }
+      if (dateValue === null) return "Waiting...";
 
-      let now = new Date();
-      let seconds = Math.floor((now - dateValue) / 1000);
+      let seconds = Math.floor((new Date() - dateValue) / 1000);
 
-      if (seconds < 60) {
-        return seconds + " seconds ago";
-      }
+      if (seconds < 60) return seconds + " sec ago";
 
       let minutes = Math.floor(seconds / 60);
 
-      if (minutes < 60) {
-        return minutes + " minutes ago";
-      }
+      if (minutes < 60) return minutes + " min ago";
 
       let hours = Math.floor(minutes / 60);
-      return hours + " hours ago";
+      return hours + " hr ago";
+    }
+
+    function getSecondsSince(dateValue) {
+      if (dateValue === null) return 999999;
+      return Math.floor((new Date() - dateValue) / 1000);
     }
 
     function calculateHeadingText(lat1, lon1, lat2, lon2) {
-      let bearing = calculateBearingDegrees(lat1, lon1, lat2, lon2);
+      return bearingToText(calculateBearingDegrees(lat1, lon1, lat2, lon2));
+    }
 
+    function bearingToText(bearing) {
       if (bearing >= 337.5 || bearing < 22.5) return "North";
       if (bearing >= 22.5 && bearing < 67.5) return "Northeast";
       if (bearing >= 67.5 && bearing < 112.5) return "East";
@@ -390,6 +606,32 @@
       return (bearing + 360) % 360;
     }
 
+    function circularMeanDegrees(degreesArray) {
+      let sinSum = 0;
+      let cosSum = 0;
+
+      degreesArray.forEach(deg => {
+        let rad = deg * Math.PI / 180;
+        sinSum += Math.sin(rad);
+        cosSum += Math.cos(rad);
+      });
+
+      let mean = Math.atan2(sinSum, cosSum) * 180 / Math.PI;
+      return (mean + 360) % 360;
+    }
+
+    function averageBearingDifference(headings, averageBearing) {
+      let totalDifference = 0;
+
+      headings.forEach(heading => {
+        let diff = Math.abs(heading - averageBearing);
+        if (diff > 180) diff = 360 - diff;
+        totalDifference += diff;
+      });
+
+      return totalDifference / headings.length;
+    }
+
     function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
       const earthRadiusMeters = 6371000;
 
@@ -411,62 +653,6 @@
 
     function metersPerSecondToMph(metersPerSecond) {
       return metersPerSecond * 2.236936;
-    }
-
-    function generateSitrep() {
-      if (breadcrumbs.length === 0) {
-        document.getElementById("sitrep").textContent = "No location data available yet.";
-        return;
-      }
-
-      let lastPoint = breadcrumbs[breadcrumbs.length - 1];
-      let distanceMiles = totalDistanceMeters / 1609.344;
-      let elevationGainFeet = totalElevationGainMeters * 3.28084;
-      let elevationLossFeet = totalElevationLossMeters * 3.28084;
-
-      let sitrep =
-`BEAST AUTO SITREP
-
-Status:
-${currentMovementStatus}
-
-Last GPS:
-${lastPoint.latitude}, ${lastPoint.longitude}
-
-GPS Accuracy:
-${lastPoint.accuracy} meters
-
-Altitude:
-${lastPoint.altitude === null ? "Not available" : lastPoint.altitude.toFixed(2) + " meters"}
-
-Altitude Accuracy:
-${lastPoint.altitudeAccuracy === null ? "Not available" : lastPoint.altitudeAccuracy.toFixed(2) + " meters"}
-
-Distance Traveled:
-${distanceMiles.toFixed(2)} miles
-
-Elevation Gain:
-${elevationGainFeet.toFixed(0)} ft
-
-Elevation Loss:
-${elevationLossFeet.toFixed(0)} ft
-
-Direction of Travel:
-${currentHeadingText}
-
-Last Movement:
-${formatTimeAgo(lastMovementTime)}
-
-Last GPS Update:
-${formatTimeAgo(lastGpsUpdateTime)}
-
-Saved Breadcrumb Points:
-${breadcrumbs.length}
-
-Generated:
-${new Date().toLocaleString()}`;
-
-      document.getElementById("sitrep").textContent = sitrep;
     }
 
     function checkBattery() {
@@ -498,10 +684,10 @@ ${new Date().toLocaleString()}`;
         return;
       }
 
-      let csv = "time,latitude,longitude,accuracy,altitude,altitudeAccuracy,distanceMiles,elevationGainFeet,elevationLossFeet,movementStatus,heading,lastMovement,lastGpsAge\n";
+      let csv = "time,latitude,longitude,accuracy,altitude,altitudeAccuracy,movementStatus,heading,locationConfidence,travelTrend,travelTrendConfidence,searchRadiusMiles,distanceMiles,elevationGainFeet,elevationLossFeet\n";
 
       breadcrumbs.forEach(point => {
-        csv += `${point.time},${point.latitude},${point.longitude},${point.accuracy},${point.altitude},${point.altitudeAccuracy},${(totalDistanceMeters / 1609.344).toFixed(2)},${(totalElevationGainMeters * 3.28084).toFixed(0)},${(totalElevationLossMeters * 3.28084).toFixed(0)},${currentMovementStatus},${currentHeadingText},${formatTimeAgo(lastMovementTime)},${formatTimeAgo(lastGpsUpdateTime)}\n`;
+        csv += `${point.time},${point.latitude},${point.longitude},${point.accuracy},${point.altitude},${point.altitudeAccuracy},${point.movementStatus},${point.heading},${currentLocationConfidenceScore},${currentTravelTrendText},${currentTravelTrendConfidenceScore},${currentSearchRadiusMiles.toFixed(2)},${(totalDistanceMeters / 1609.344).toFixed(2)},${(totalElevationGainMeters * 3.28084).toFixed(0)},${(totalElevationLossMeters * 3.28084).toFixed(0)}\n`;
       });
 
       let blob = new Blob([csv], { type: "text/csv" });
@@ -509,7 +695,7 @@ ${new Date().toLocaleString()}`;
 
       let link = document.createElement("a");
       link.href = url;
-      link.download = "beast_scout_breadcrumbs.csv";
+      link.download = "beast_scout_breadcrumbs_v09.csv";
       link.click();
 
       URL.revokeObjectURL(url);
