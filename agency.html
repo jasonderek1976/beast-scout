@@ -15,8 +15,13 @@
       padding: 20px;
     }
 
-    h1, h2 {
-      margin-bottom: 5px;
+    button {
+      width: 100%;
+      padding: 12px;
+      margin: 6px 0;
+      font-size: 18px;
+      border-radius: 6px;
+      border: none;
     }
 
     .grid {
@@ -49,7 +54,7 @@
     }
 
     #map {
-      height: 420px;
+      height: 430px;
       width: 100%;
       margin-top: 15px;
       border-radius: 8px;
@@ -63,20 +68,15 @@
       font-size: 14px;
     }
 
-    button {
-      width: 100%;
-      padding: 12px;
-      margin: 6px 0;
-      font-size: 18px;
-      border-radius: 6px;
-      border: none;
+    .route-card {
+      border-left: 6px solid white;
     }
   </style>
 </head>
 
 <body>
   <h1>BEAST Rescue</h1>
-  <p>Agency Dashboard Prototype v0.1</p>
+  <p>Agency Dashboard Prototype v0.2</p>
 
   <button onclick="loadDemoIncident()">Load Demo Incident</button>
   <button onclick="clearIncident()">Clear Dashboard</button>
@@ -136,6 +136,31 @@
   <div id="map"></div>
 
   <div class="card">
+    <h2>Suggested Response Routes</h2>
+
+    <div class="card route-card">
+      <h3>Route 1: Direct Route</h3>
+      <p><strong>Purpose:</strong> Fastest approach to last known location.</p>
+      <p><strong>Use When:</strong> Subject may be injured, stationary, or time-sensitive.</p>
+      <p><strong>Note:</strong> Confirm terrain and access before committing team.</p>
+    </div>
+
+    <div class="card route-card">
+      <h3>Route 2: Safer Route</h3>
+      <p><strong>Purpose:</strong> Slower approach using safer terrain or known access.</p>
+      <p><strong>Use When:</strong> Terrain, darkness, weather, or responder safety is a concern.</p>
+      <p><strong>Note:</strong> Safer route may take longer but reduce SAR risk.</p>
+    </div>
+
+    <div class="card route-card">
+      <h3>Route 3: Containment Route</h3>
+      <p><strong>Purpose:</strong> Position SAR near the likely direction of travel.</p>
+      <p><strong>Use When:</strong> Subject may still be moving, confused, altered, or circling.</p>
+      <p><strong>Note:</strong> Helps intercept instead of only chasing last known point.</p>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Responder SITREP</h2>
     <pre id="sitrep">No SITREP loaded.</pre>
   </div>
@@ -150,8 +175,13 @@
     }).addTo(map);
 
     let breadcrumbLine = L.polyline([], { weight: 5 }).addTo(map);
+    let directRouteLine = L.polyline([], { weight: 5, dashArray: "8, 8" }).addTo(map);
+    let safeRouteLine = L.polyline([], { weight: 5, dashArray: "4, 10" }).addTo(map);
+    let containmentRouteLine = L.polyline([], { weight: 5, dashArray: "12, 6" }).addTo(map);
+
     let lastKnownMarker = null;
     let searchCircle = null;
+    let routeMarkers = [];
 
     const demoIncident = {
       subjectStatus: "Minimal Movement",
@@ -173,6 +203,7 @@
       distanceMiles: 0.42,
       averageSpeedMph: 1.7,
       breadcrumbPoints: 143,
+
       breadcrumbs: [
         [30.629950, -97.655100],
         [30.630050, -97.654950],
@@ -182,7 +213,31 @@
         [30.630450, -97.654350],
         [30.630560, -97.654180],
         [30.630678, -97.653963]
-      ]
+      ],
+
+      routes: {
+        direct: [
+          [30.629600, -97.655500],
+          [30.629950, -97.655100],
+          [30.630250, -97.654650],
+          [30.630678, -97.653963]
+        ],
+
+        safe: [
+          [30.629600, -97.655500],
+          [30.629700, -97.654900],
+          [30.630000, -97.654400],
+          [30.630350, -97.654150],
+          [30.630678, -97.653963]
+        ],
+
+        containment: [
+          [30.630678, -97.653963],
+          [30.630900, -97.653700],
+          [30.631100, -97.653450],
+          [30.631300, -97.653200]
+        ]
+      }
     };
 
     function loadDemoIncident() {
@@ -193,7 +248,7 @@
       document.getElementById("confidenceNote").textContent = "GPS age, accuracy, and breadcrumb count support this confidence level.";
 
       document.getElementById("searchPriority").textContent = demoIncident.searchPriority;
-      document.getElementById("priorityNote").textContent = "Recommended: review last known location and recent travel trend.";
+      document.getElementById("priorityNote").textContent = "Recommended: review last known location, route options, and travel trend.";
 
       document.getElementById("lat").textContent = demoIncident.latitude.toFixed(6);
       document.getElementById("lon").textContent = demoIncident.longitude.toFixed(6);
@@ -220,33 +275,60 @@
     }
 
     function drawIncidentMap() {
-      breadcrumbLine.setLatLngs(demoIncident.breadcrumbs);
+      clearMapLayers();
 
-      let lastPoint = [
-        demoIncident.latitude,
-        demoIncident.longitude
-      ];
+      breadcrumbLine.setLatLngs(demoIncident.breadcrumbs);
+      directRouteLine.setLatLngs(demoIncident.routes.direct);
+      safeRouteLine.setLatLngs(demoIncident.routes.safe);
+      containmentRouteLine.setLatLngs(demoIncident.routes.containment);
+
+      let lastPoint = [demoIncident.latitude, demoIncident.longitude];
 
       map.setView(lastPoint, 16);
-
-      if (lastKnownMarker !== null) {
-        map.removeLayer(lastKnownMarker);
-      }
 
       lastKnownMarker = L.marker(lastPoint)
         .addTo(map)
         .bindPopup("Last Known Location")
         .openPopup();
 
-      if (searchCircle !== null) {
-        map.removeLayer(searchCircle);
-      }
-
       let searchRadiusMeters = demoIncident.searchRadiusMiles * 1609.344;
 
       searchCircle = L.circle(lastPoint, {
         radius: searchRadiusMeters
       }).addTo(map);
+
+      addRouteMarker(demoIncident.routes.direct[0], "SAR Start / Staging");
+      addRouteMarker(demoIncident.routes.direct[demoIncident.routes.direct.length - 1], "Route 1: Direct to LKL");
+      addRouteMarker(demoIncident.routes.safe[demoIncident.routes.safe.length - 1], "Route 2: Safer Approach");
+      addRouteMarker(demoIncident.routes.containment[demoIncident.routes.containment.length - 1], "Route 3: Containment Position");
+    }
+
+    function addRouteMarker(point, label) {
+      let marker = L.marker(point).addTo(map).bindPopup(label);
+      routeMarkers.push(marker);
+    }
+
+    function clearMapLayers() {
+      breadcrumbLine.setLatLngs([]);
+      directRouteLine.setLatLngs([]);
+      safeRouteLine.setLatLngs([]);
+      containmentRouteLine.setLatLngs([]);
+
+      if (lastKnownMarker !== null) {
+        map.removeLayer(lastKnownMarker);
+        lastKnownMarker = null;
+      }
+
+      if (searchCircle !== null) {
+        map.removeLayer(searchCircle);
+        searchCircle = null;
+      }
+
+      routeMarkers.forEach(marker => {
+        map.removeLayer(marker);
+      });
+
+      routeMarkers = [];
     }
 
     function generateResponderSitrep() {
@@ -287,6 +369,20 @@ ${demoIncident.travelTrendConfidence}
 Estimated Search Radius:
 ${demoIncident.searchRadiusMiles.toFixed(2)} mi
 
+Suggested Response Routes:
+
+Route 1: Direct Route
+Fastest approach to last known location.
+Use if subject may be injured, stationary, or time-sensitive.
+
+Route 2: Safer Route
+Longer approach using safer terrain or known access.
+Use if terrain, darkness, weather, or responder safety is a concern.
+
+Route 3: Containment Route
+Move team toward likely direction of travel/search-circle edge.
+Use if subject may be altered, confused, still moving, or difficult to intercept.
+
 Altitude:
 ${demoIncident.altitudeMeters.toFixed(1)} m
 
@@ -306,7 +402,7 @@ Breadcrumb Points:
 ${demoIncident.breadcrumbPoints}
 
 Responder Note:
-Use the breadcrumb trail, last known location, search radius, and travel trend together. This dashboard supports responder judgment; it does not replace field assessment.`;
+These routes are planning aids only. Final route choice must consider terrain, weather, hazards, road/trail access, responder safety, and incident command judgment.`;
 
       document.getElementById("sitrep").textContent = sitrep;
     }
@@ -337,17 +433,7 @@ Use the breadcrumb trail, last known location, search radius, and travel trend t
       document.getElementById("points").textContent = "0";
       document.getElementById("sitrep").textContent = "No SITREP loaded.";
 
-      breadcrumbLine.setLatLngs([]);
-
-      if (lastKnownMarker !== null) {
-        map.removeLayer(lastKnownMarker);
-        lastKnownMarker = null;
-      }
-
-      if (searchCircle !== null) {
-        map.removeLayer(searchCircle);
-        searchCircle = null;
-      }
+      clearMapLayers();
     }
   </script>
 </body>
