@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>BEAST Rescue</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #101820;
+      color: white;
+      padding: 20px;
+    }
+
+    h1, h2 {
+      margin-bottom: 5px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .card {
+      background: #1d2d3a;
+      padding: 15px;
+      border-radius: 8px;
+    }
+
+    .critical {
+      background: #3a1d1d;
+    }
+
+    .good {
+      background: #1d3a28;
+    }
+
+    .warning {
+      background: #3a331d;
+    }
+
+    .value {
+      font-size: 24px;
+      font-weight: bold;
+    }
+
+    #map {
+      height: 420px;
+      width: 100%;
+      margin-top: 15px;
+      border-radius: 8px;
+    }
+
+    pre {
+      white-space: pre-wrap;
+      background: #081018;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      margin: 6px 0;
+      font-size: 18px;
+      border-radius: 6px;
+      border: none;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>BEAST Rescue</h1>
+  <p>Agency Dashboard Prototype v0.1</p>
+
+  <button onclick="loadDemoIncident()">Load Demo Incident</button>
+  <button onclick="clearIncident()">Clear Dashboard</button>
+
+  <div class="grid">
+    <div class="card critical">
+      <h2>Subject Status</h2>
+      <div class="value" id="subjectStatus">No active incident</div>
+      <p id="statusNote">Load demo incident to view ranger dashboard.</p>
+    </div>
+
+    <div class="card good">
+      <h2>Location Confidence</h2>
+      <div class="value" id="locationConfidence">Unknown</div>
+      <p id="confidenceNote">Waiting for GPS data.</p>
+    </div>
+
+    <div class="card warning">
+      <h2>Search Priority</h2>
+      <div class="value" id="searchPriority">Unknown</div>
+      <p id="priorityNote">Priority is based on movement, confidence, and GPS age.</p>
+    </div>
+
+    <div class="card">
+      <h2>Last Known Location</h2>
+      <p><strong>Latitude:</strong> <span id="lat">Waiting...</span></p>
+      <p><strong>Longitude:</strong> <span id="lon">Waiting...</span></p>
+      <p><strong>GPS Accuracy:</strong> <span id="accuracy">Waiting...</span></p>
+      <p><strong>Last GPS Update:</strong> <span id="lastGps">Waiting...</span></p>
+    </div>
+
+    <div class="card">
+      <h2>Movement Intelligence</h2>
+      <p><strong>Movement Status:</strong> <span id="movementStatus">Unknown</span></p>
+      <p><strong>Direction of Travel:</strong> <span id="direction">Unknown</span></p>
+      <p><strong>Travel Trend:</strong> <span id="travelTrend">Unknown</span></p>
+      <p><strong>Travel Trend Confidence:</strong> <span id="trendConfidence">Unknown</span></p>
+      <p><strong>Estimated Search Radius:</strong> <span id="searchRadius">Unknown</span></p>
+    </div>
+
+    <div class="card">
+      <h2>Terrain / Elevation</h2>
+      <p><strong>Altitude:</strong> <span id="altitude">Waiting...</span></p>
+      <p><strong>Altitude Accuracy:</strong> <span id="altitudeAccuracy">Waiting...</span></p>
+      <p><strong>Elevation Gain:</strong> <span id="elevationGain">0 ft</span></p>
+      <p><strong>Elevation Loss:</strong> <span id="elevationLoss">0 ft</span></p>
+    </div>
+
+    <div class="card">
+      <h2>Tracking Summary</h2>
+      <p><strong>Distance Traveled:</strong> <span id="distance">0.00 mi</span></p>
+      <p><strong>Average Speed:</strong> <span id="averageSpeed">0.00 mph</span></p>
+      <p><strong>Breadcrumb Points:</strong> <span id="points">0</span></p>
+    </div>
+  </div>
+
+  <div id="map"></div>
+
+  <div class="card">
+    <h2>Responder SITREP</h2>
+    <pre id="sitrep">No SITREP loaded.</pre>
+  </div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <script>
+    let map = L.map('map').setView([30.6307, -97.6540], 15);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19
+    }).addTo(map);
+
+    let breadcrumbLine = L.polyline([], { weight: 5 }).addTo(map);
+    let lastKnownMarker = null;
+    let searchCircle = null;
+
+    const demoIncident = {
+      subjectStatus: "Minimal Movement",
+      locationConfidence: "HIGH (92%)",
+      searchPriority: "Elevated",
+      latitude: 30.630678,
+      longitude: -97.653963,
+      accuracyMeters: 5.0,
+      lastGpsUpdate: "28 sec ago",
+      movementStatus: "Minimal Movement",
+      direction: "Northeast",
+      travelTrend: "Consistent Northeast",
+      travelTrendConfidence: "87%",
+      searchRadiusMiles: 0.08,
+      altitudeMeters: 216.5,
+      altitudeAccuracyMeters: 4.0,
+      elevationGainFeet: 12,
+      elevationLossFeet: 8,
+      distanceMiles: 0.42,
+      averageSpeedMph: 1.7,
+      breadcrumbPoints: 143,
+      breadcrumbs: [
+        [30.629950, -97.655100],
+        [30.630050, -97.654950],
+        [30.630150, -97.654800],
+        [30.630250, -97.654650],
+        [30.630350, -97.654500],
+        [30.630450, -97.654350],
+        [30.630560, -97.654180],
+        [30.630678, -97.653963]
+      ]
+    };
+
+    function loadDemoIncident() {
+      document.getElementById("subjectStatus").textContent = demoIncident.subjectStatus;
+      document.getElementById("statusNote").textContent = "Subject is not confirmed stationary, but movement is limited.";
+
+      document.getElementById("locationConfidence").textContent = demoIncident.locationConfidence;
+      document.getElementById("confidenceNote").textContent = "GPS age, accuracy, and breadcrumb count support this confidence level.";
+
+      document.getElementById("searchPriority").textContent = demoIncident.searchPriority;
+      document.getElementById("priorityNote").textContent = "Recommended: review last known location and recent travel trend.";
+
+      document.getElementById("lat").textContent = demoIncident.latitude.toFixed(6);
+      document.getElementById("lon").textContent = demoIncident.longitude.toFixed(6);
+      document.getElementById("accuracy").textContent = demoIncident.accuracyMeters.toFixed(1) + " m";
+      document.getElementById("lastGps").textContent = demoIncident.lastGpsUpdate;
+
+      document.getElementById("movementStatus").textContent = demoIncident.movementStatus;
+      document.getElementById("direction").textContent = demoIncident.direction;
+      document.getElementById("travelTrend").textContent = demoIncident.travelTrend;
+      document.getElementById("trendConfidence").textContent = demoIncident.travelTrendConfidence;
+      document.getElementById("searchRadius").textContent = demoIncident.searchRadiusMiles.toFixed(2) + " mi";
+
+      document.getElementById("altitude").textContent = demoIncident.altitudeMeters.toFixed(1) + " m";
+      document.getElementById("altitudeAccuracy").textContent = demoIncident.altitudeAccuracyMeters.toFixed(1) + " m";
+      document.getElementById("elevationGain").textContent = demoIncident.elevationGainFeet + " ft";
+      document.getElementById("elevationLoss").textContent = demoIncident.elevationLossFeet + " ft";
+
+      document.getElementById("distance").textContent = demoIncident.distanceMiles.toFixed(2) + " mi";
+      document.getElementById("averageSpeed").textContent = demoIncident.averageSpeedMph.toFixed(2) + " mph";
+      document.getElementById("points").textContent = demoIncident.breadcrumbPoints;
+
+      drawIncidentMap();
+      generateResponderSitrep();
+    }
+
+    function drawIncidentMap() {
+      breadcrumbLine.setLatLngs(demoIncident.breadcrumbs);
+
+      let lastPoint = [
+        demoIncident.latitude,
+        demoIncident.longitude
+      ];
+
+      map.setView(lastPoint, 16);
+
+      if (lastKnownMarker !== null) {
+        map.removeLayer(lastKnownMarker);
+      }
+
+      lastKnownMarker = L.marker(lastPoint)
+        .addTo(map)
+        .bindPopup("Last Known Location")
+        .openPopup();
+
+      if (searchCircle !== null) {
+        map.removeLayer(searchCircle);
+      }
+
+      let searchRadiusMeters = demoIncident.searchRadiusMiles * 1609.344;
+
+      searchCircle = L.circle(lastPoint, {
+        radius: searchRadiusMeters
+      }).addTo(map);
+    }
+
+    function generateResponderSitrep() {
+      let sitrep =
+`BEAST RESCUE SITREP
+
+Subject Status:
+${demoIncident.subjectStatus}
+
+Search Priority:
+${demoIncident.searchPriority}
+
+Location Confidence:
+${demoIncident.locationConfidence}
+
+Last Known Location:
+${demoIncident.latitude.toFixed(6)}
+${demoIncident.longitude.toFixed(6)}
+
+GPS Accuracy:
+${demoIncident.accuracyMeters.toFixed(1)} m
+
+Last GPS Update:
+${demoIncident.lastGpsUpdate}
+
+Movement Status:
+${demoIncident.movementStatus}
+
+Direction of Travel:
+${demoIncident.direction}
+
+Travel Trend:
+${demoIncident.travelTrend}
+
+Travel Trend Confidence:
+${demoIncident.travelTrendConfidence}
+
+Estimated Search Radius:
+${demoIncident.searchRadiusMiles.toFixed(2)} mi
+
+Altitude:
+${demoIncident.altitudeMeters.toFixed(1)} m
+
+Altitude Accuracy:
+${demoIncident.altitudeAccuracyMeters.toFixed(1)} m
+
+Elevation Change:
++${demoIncident.elevationGainFeet} ft / -${demoIncident.elevationLossFeet} ft
+
+Distance Traveled:
+${demoIncident.distanceMiles.toFixed(2)} mi
+
+Average Speed:
+${demoIncident.averageSpeedMph.toFixed(2)} mph
+
+Breadcrumb Points:
+${demoIncident.breadcrumbPoints}
+
+Responder Note:
+Use the breadcrumb trail, last known location, search radius, and travel trend together. This dashboard supports responder judgment; it does not replace field assessment.`;
+
+      document.getElementById("sitrep").textContent = sitrep;
+    }
+
+    function clearIncident() {
+      document.getElementById("subjectStatus").textContent = "No active incident";
+      document.getElementById("statusNote").textContent = "Load demo incident to view ranger dashboard.";
+      document.getElementById("locationConfidence").textContent = "Unknown";
+      document.getElementById("confidenceNote").textContent = "Waiting for GPS data.";
+      document.getElementById("searchPriority").textContent = "Unknown";
+      document.getElementById("priorityNote").textContent = "Priority is based on movement, confidence, and GPS age.";
+
+      document.getElementById("lat").textContent = "Waiting...";
+      document.getElementById("lon").textContent = "Waiting...";
+      document.getElementById("accuracy").textContent = "Waiting...";
+      document.getElementById("lastGps").textContent = "Waiting...";
+      document.getElementById("movementStatus").textContent = "Unknown";
+      document.getElementById("direction").textContent = "Unknown";
+      document.getElementById("travelTrend").textContent = "Unknown";
+      document.getElementById("trendConfidence").textContent = "Unknown";
+      document.getElementById("searchRadius").textContent = "Unknown";
+      document.getElementById("altitude").textContent = "Waiting...";
+      document.getElementById("altitudeAccuracy").textContent = "Waiting...";
+      document.getElementById("elevationGain").textContent = "0 ft";
+      document.getElementById("elevationLoss").textContent = "0 ft";
+      document.getElementById("distance").textContent = "0.00 mi";
+      document.getElementById("averageSpeed").textContent = "0.00 mph";
+      document.getElementById("points").textContent = "0";
+      document.getElementById("sitrep").textContent = "No SITREP loaded.";
+
+      breadcrumbLine.setLatLngs([]);
+
+      if (lastKnownMarker !== null) {
+        map.removeLayer(lastKnownMarker);
+        lastKnownMarker = null;
+      }
+
+      if (searchCircle !== null) {
+        map.removeLayer(searchCircle);
+        searchCircle = null;
+      }
+    }
+  </script>
+</body>
+</html>
