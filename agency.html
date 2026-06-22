@@ -41,35 +41,20 @@
 
       <div class="route-card">
         <h3>Route 1: Subject Self-Rescue</h3>
-        <p>
-          Mirrors Scout Route 1: Self-Rescue Route.
-        </p>
-        <p>
-          <strong>Confidence:</strong>
-          <span id="route1Confidence">--</span>
-        </p>
+        <p>Mirrors Scout Route 1: Self-Rescue Route.</p>
+        <p><strong>Confidence:</strong> <span id="route1Confidence">--</span></p>
       </div>
 
       <div class="route-card">
         <h3>Route 2: Responder Access</h3>
-        <p>
-          Best route for responders to reach the subject.
-        </p>
-        <p>
-          <strong>Confidence:</strong>
-          <span id="route2Confidence">--</span>
-        </p>
+        <p>Best route for responders to reach the subject.</p>
+        <p><strong>Confidence:</strong> <span id="route2Confidence">--</span></p>
       </div>
 
       <div class="route-card">
         <h3>Route 3: Containment Route</h3>
-        <p>
-          Mirrors Scout Route 3: Intercept Route.
-        </p>
-        <p>
-          <strong>Confidence:</strong>
-          <span id="route3Confidence">--</span>
-        </p>
+        <p>Mirrors Scout Route 3: Intercept Route.</p>
+        <p><strong>Confidence:</strong> <span id="route3Confidence">--</span></p>
       </div>
     </section>
 
@@ -78,6 +63,10 @@
 
       <button id="markFoundBtn" type="button">
         Mark Subject Found
+      </button>
+
+      <button id="resetAlertBtn" type="button">
+        Reset Active Alert
       </button>
 
       <div class="info-box">
@@ -94,7 +83,8 @@
       getDatabase,
       ref,
       onValue,
-      update
+      update,
+      remove
     } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
 
     const firebaseConfig = {
@@ -120,6 +110,7 @@
     const timerText = document.getElementById("timerText");
     const foundStatus = document.getElementById("foundStatus");
     const markFoundBtn = document.getElementById("markFoundBtn");
+    const resetAlertBtn = document.getElementById("resetAlertBtn");
 
     const route1Confidence = document.getElementById("route1Confidence");
     const route2Confidence = document.getElementById("route2Confidence");
@@ -133,35 +124,24 @@
 
     onValue(activeAlertRef, (snapshot) => {
       if (!snapshot.exists()) {
-        agencyStatus.textContent = "Waiting for alert...";
+        clearAgencyScreen();
         return;
       }
 
       const alert = snapshot.val();
       activeIncident = alert;
 
-      agencyStatus.textContent = "ALERT RECEIVED";
-      incidentIdText.textContent = `Incident ID: ${alert.incidentId}`;
-      troubleLevelText.textContent = `Trouble Level: ${alert.troubleLevel}`;
-      locationText.textContent = `Location: ${alert.latitude.toFixed(6)}, ${alert.longitude.toFixed(6)}`;
-      accuracyText.textContent = `Accuracy: ${Math.round(alert.accuracyMeters)} meters`;
-      sentAtText.textContent = `Sent At: ${new Date(alert.sentAt).toLocaleString()}`;
-
-      route1Confidence.textContent = alert.confidenceRoute1;
-      route2Confidence.textContent = alert.confidenceRoute2;
-      route3Confidence.textContent = alert.confidenceRoute3;
-
-      alertStartTime = new Date(alert.sentAt);
-
-      if (!timerInterval) {
-        timerInterval = setInterval(updateTimer, 1000);
+      if (alert.alertActive !== true || alert.status === "CLOSED") {
+        clearAgencyScreen();
+        return;
       }
 
-      if (alert.found === true) {
-        foundStatus.textContent = `Subject found. Time To Locate: ${alert.timeToLocate}`;
-      } else {
-        foundStatus.textContent = "Subject not marked found yet.";
+      if (alert.status === "FOUND" || alert.found === true) {
+        showFoundIncident(alert);
+        return;
       }
+
+      showActiveIncident(alert);
     });
 
     markFoundBtn.addEventListener("click", async () => {
@@ -175,12 +155,18 @@
       const timeToLocate = formatTime(secondsToLocate);
 
       await update(ref(database, "activeAlert"), {
+        status: "FOUND",
+        alertActive: false,
+        missionStarted: false,
         found: true,
         foundAt: foundAt.toISOString(),
         timeToLocate: timeToLocate
       });
 
       await update(ref(database, `incidents/${activeIncident.incidentId}`), {
+        status: "FOUND",
+        alertActive: false,
+        missionStarted: false,
         found: true,
         foundAt: foundAt.toISOString(),
         timeToLocate: timeToLocate
@@ -188,6 +174,76 @@
 
       foundStatus.textContent = `Subject found. Time To Locate: ${timeToLocate}`;
     });
+
+    resetAlertBtn.addEventListener("click", async () => {
+      await remove(ref(database, "activeAlert"));
+      clearAgencyScreen();
+    });
+
+    function showActiveIncident(alert) {
+      agencyStatus.textContent = "ALERT RECEIVED";
+      incidentIdText.textContent = `Incident ID: ${alert.incidentId}`;
+      troubleLevelText.textContent = `Trouble Level: ${alert.troubleLevel}`;
+      locationText.textContent = `Location: ${Number(alert.latitude).toFixed(6)}, ${Number(alert.longitude).toFixed(6)}`;
+      accuracyText.textContent = `Accuracy: ${Math.round(alert.accuracyMeters)} meters`;
+      sentAtText.textContent = `Sent At: ${new Date(alert.sentAt).toLocaleString()}`;
+
+      route1Confidence.textContent = alert.confidenceRoute1;
+      route2Confidence.textContent = alert.confidenceRoute2;
+      route3Confidence.textContent = alert.confidenceRoute3;
+
+      alertStartTime = new Date(alert.sentAt);
+      foundStatus.textContent = "Subject not marked found yet.";
+
+      startTimer();
+    }
+
+    function showFoundIncident(alert) {
+      stopTimer();
+
+      agencyStatus.textContent = "SUBJECT FOUND";
+      incidentIdText.textContent = `Incident ID: ${alert.incidentId}`;
+      troubleLevelText.textContent = `Trouble Level: ${alert.troubleLevel}`;
+      locationText.textContent = `Location: ${Number(alert.latitude).toFixed(6)}, ${Number(alert.longitude).toFixed(6)}`;
+      accuracyText.textContent = `Accuracy: ${Math.round(alert.accuracyMeters)} meters`;
+      sentAtText.textContent = `Sent At: ${new Date(alert.sentAt).toLocaleString()}`;
+
+      timerText.textContent = alert.timeToLocate || "00:00:00";
+      foundStatus.textContent = `Mission complete. Time To Locate: ${alert.timeToLocate || "Not recorded"}`;
+    }
+
+    function clearAgencyScreen() {
+      stopTimer();
+
+      activeIncident = null;
+      alertStartTime = null;
+
+      agencyStatus.textContent = "No active alert. Waiting for new incident...";
+      incidentIdText.textContent = "";
+      troubleLevelText.textContent = "";
+      locationText.textContent = "";
+      accuracyText.textContent = "";
+      sentAtText.textContent = "";
+
+      route1Confidence.textContent = "--";
+      route2Confidence.textContent = "--";
+      route3Confidence.textContent = "--";
+
+      timerText.textContent = "00:00:00";
+      foundStatus.textContent = "";
+    }
+
+    function startTimer() {
+      stopTimer();
+      timerInterval = setInterval(updateTimer, 1000);
+    }
+
+    function stopTimer() {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+    }
 
     function updateTimer() {
       if (!alertStartTime) {

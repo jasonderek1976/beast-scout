@@ -1,4 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+
 import {
   getDatabase,
   ref,
@@ -42,7 +43,10 @@ troubleButtons.forEach((button) => {
     selectedTroubleLevel = button.dataset.level;
     selectedTrouble.textContent = `Selected: ${selectedTroubleLevel}`;
 
-    troubleButtons.forEach((btn) => btn.classList.remove("selected"));
+    troubleButtons.forEach((btn) => {
+      btn.classList.remove("selected");
+    });
+
     button.classList.add("selected");
   });
 });
@@ -54,6 +58,7 @@ function getMyLocation() {
   }
 
   locationText.textContent = "Getting location...";
+  accuracyText.textContent = "";
 
   navigator.geolocation.getCurrentPosition(
     (position) => {
@@ -66,6 +71,7 @@ function getMyLocation() {
     },
     (error) => {
       locationText.textContent = `Location error: ${error.message}`;
+      accuracyText.textContent = "";
     },
     {
       enableHighAccuracy: true,
@@ -86,34 +92,50 @@ async function sendComeGetMeAlert() {
     return;
   }
 
-  const incidentId = await createIncidentId();
+  try {
+    sendStatus.textContent = "Sending alert...";
 
-  const alertData = {
-    incidentId: incidentId,
-    alertActive: true,
-    troubleLevel: selectedTroubleLevel,
-    latitude: currentLatitude,
-    longitude: currentLongitude,
-    accuracyMeters: currentAccuracy,
-    scoutRoute1: "Self-Rescue Route",
-    scoutRoute2: "Responder Access Route",
-    scoutRoute3: "Intercept Route",
-    agencyRoute1: "Subject Self-Rescue",
-    agencyRoute2: "Responder Access",
-    agencyRoute3: "Containment Route",
-    confidenceRoute1: "Medium",
-    confidenceRoute2: "High",
-    confidenceRoute3: "Medium",
-    sentAt: new Date().toISOString(),
-    missionStarted: true,
-    found: false,
-    timeToLocate: null
-  };
+    const incidentId = await createIncidentId();
+    const sentAt = new Date().toISOString();
 
-  await set(ref(database, "activeAlert"), alertData);
-  await set(ref(database, `incidents/${incidentId}`), alertData);
+    const alertData = {
+      incidentId: incidentId,
+      status: "ACTIVE",
 
-  sendStatus.textContent = `Alert sent. Incident ID: ${incidentId}`;
+      alertActive: true,
+      missionStarted: true,
+      found: false,
+
+      troubleLevel: selectedTroubleLevel,
+
+      latitude: currentLatitude,
+      longitude: currentLongitude,
+      accuracyMeters: currentAccuracy,
+
+      scoutRoute1: "Self-Rescue Route",
+      scoutRoute2: "Responder Access Route",
+      scoutRoute3: "Intercept Route",
+
+      agencyRoute1: "Subject Self-Rescue",
+      agencyRoute2: "Responder Access",
+      agencyRoute3: "Containment Route",
+
+      confidenceRoute1: "Medium",
+      confidenceRoute2: "High",
+      confidenceRoute3: "Medium",
+
+      sentAt: sentAt,
+      foundAt: null,
+      timeToLocate: null
+    };
+
+    await set(ref(database, "activeAlert"), alertData);
+    await set(ref(database, `incidents/${incidentId}`), alertData);
+
+    sendStatus.textContent = `Alert sent. Incident ID: ${incidentId}`;
+  } catch (error) {
+    sendStatus.textContent = `Alert failed: ${error.message}`;
+  }
 }
 
 async function createIncidentId() {
@@ -124,17 +146,18 @@ async function createIncidentId() {
   const day = String(now.getDate()).padStart(2, "0");
 
   const dateCode = `${year}${month}${day}`;
+  const counterPath = `incidentCounter/${dateCode}`;
 
   const dbRef = ref(database);
-  const snapshot = await get(child(dbRef, "incidentCounter/" + dateCode));
+  const snapshot = await get(child(dbRef, counterPath));
 
   let nextNumber = 1;
 
   if (snapshot.exists()) {
-    nextNumber = snapshot.val() + 1;
+    nextNumber = Number(snapshot.val()) + 1;
   }
 
-  await set(ref(database, "incidentCounter/" + dateCode), nextNumber);
+  await set(ref(database, counterPath), nextNumber);
 
   const paddedNumber = String(nextNumber).padStart(3, "0");
 
