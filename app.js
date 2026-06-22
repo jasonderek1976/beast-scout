@@ -1,67 +1,142 @@
-let watchId = null;
-let breadcrumbs = [];
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+import {
+  getDatabase,
+  ref,
+  set,
+  get,
+  child
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
 
-function startTracking() {
+const firebaseConfig = {
+  apiKey: "AIzaSyC3CTeSgEoHxw7HCjRDauTCDtGtFXEgNH8",
+  authDomain: "beast-scout.firebaseapp.com",
+  databaseURL: "https://beast-scout-default-rtdb.firebaseio.com",
+  projectId: "beast-scout",
+  storageBucket: "beast-scout.firebasestorage.app",
+  messagingSenderId: "370332990396",
+  appId: "1:370332990396:web:c42366b466c362bd3589b9",
+  measurementId: "G-0D6N7EBY2T"
+};
+
+const app = initializeApp(firebaseConfig);
+const database = getDatabase(app);
+
+let currentLatitude = null;
+let currentLongitude = null;
+let currentAccuracy = null;
+let selectedTroubleLevel = null;
+
+const getLocationBtn = document.getElementById("getLocationBtn");
+const comeGetMeBtn = document.getElementById("comeGetMeBtn");
+const locationText = document.getElementById("locationText");
+const accuracyText = document.getElementById("accuracyText");
+const selectedTrouble = document.getElementById("selectedTrouble");
+const sendStatus = document.getElementById("sendStatus");
+const troubleButtons = document.querySelectorAll(".trouble-btn");
+
+getLocationBtn.addEventListener("click", getMyLocation);
+comeGetMeBtn.addEventListener("click", sendComeGetMeAlert);
+
+troubleButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    selectedTroubleLevel = button.dataset.level;
+    selectedTrouble.textContent = `Selected: ${selectedTroubleLevel}`;
+
+    troubleButtons.forEach((btn) => btn.classList.remove("selected"));
+    button.classList.add("selected");
+  });
+});
+
+function getMyLocation() {
   if (!navigator.geolocation) {
-    document.getElementById("status").textContent = "GPS not supported";
+    locationText.textContent = "GPS is not supported on this device.";
     return;
   }
 
-  document.getElementById("status").textContent = "Tracking started";
+  locationText.textContent = "Getting location...";
 
-  watchId = navigator.geolocation.watchPosition(
-    savePosition,
-    showError,
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      currentLatitude = position.coords.latitude;
+      currentLongitude = position.coords.longitude;
+      currentAccuracy = position.coords.accuracy;
+
+      locationText.textContent = `Latitude: ${currentLatitude.toFixed(6)}, Longitude: ${currentLongitude.toFixed(6)}`;
+      accuracyText.textContent = `Accuracy: ${Math.round(currentAccuracy)} meters`;
+    },
+    (error) => {
+      locationText.textContent = `Location error: ${error.message}`;
+    },
     {
       enableHighAccuracy: true,
-      maximumAge: 0,
-      timeout: 10000
+      timeout: 15000,
+      maximumAge: 0
     }
   );
 }
 
-function savePosition(position) {
-  const point = {
-    time: new Date().toISOString(),
-    latitude: position.coords.latitude,
-    longitude: position.coords.longitude,
-    accuracy: position.coords.accuracy
+async function sendComeGetMeAlert() {
+  if (!selectedTroubleLevel) {
+    sendStatus.textContent = "Pick a trouble level first.";
+    return;
+  }
+
+  if (currentLatitude === null || currentLongitude === null) {
+    sendStatus.textContent = "Get your location first.";
+    return;
+  }
+
+  const incidentId = await createIncidentId();
+
+  const alertData = {
+    incidentId: incidentId,
+    alertActive: true,
+    troubleLevel: selectedTroubleLevel,
+    latitude: currentLatitude,
+    longitude: currentLongitude,
+    accuracyMeters: currentAccuracy,
+    scoutRoute1: "Self-Rescue Route",
+    scoutRoute2: "Responder Access Route",
+    scoutRoute3: "Intercept Route",
+    agencyRoute1: "Subject Self-Rescue",
+    agencyRoute2: "Responder Access",
+    agencyRoute3: "Containment Route",
+    confidenceRoute1: "Medium",
+    confidenceRoute2: "High",
+    confidenceRoute3: "Medium",
+    sentAt: new Date().toISOString(),
+    missionStarted: true,
+    found: false,
+    timeToLocate: null
   };
 
-  breadcrumbs.push(point);
-  localStorage.setItem("beastScoutBreadcrumbs", JSON.stringify(breadcrumbs));
+  await set(ref(database, "activeAlert"), alertData);
+  await set(ref(database, `incidents/${incidentId}`), alertData);
 
-  document.getElementById("lat").textContent = point.latitude;
-  document.getElementById("lon").textContent = point.longitude;
-  document.getElementById("accuracy").textContent = point.accuracy;
-  document.getElementById("count").textContent = breadcrumbs.length;
-  document.getElementById("status").textContent = "Tracking";
+  sendStatus.textContent = `Alert sent. Incident ID: ${incidentId}`;
 }
 
-function stopTracking() {
-  if (watchId !== null) {
-    navigator.geolocation.clearWatch(watchId);
-    watchId = null;
-    document.getElementById("status").textContent = "Tracking stopped";
+async function createIncidentId() {
+  const now = new Date();
+
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+
+  const dateCode = `${year}${month}${day}`;
+
+  const dbRef = ref(database);
+  const snapshot = await get(child(dbRef, "incidentCounter/" + dateCode));
+
+  let nextNumber = 1;
+
+  if (snapshot.exists()) {
+    nextNumber = snapshot.val() + 1;
   }
-}
 
-function showError(error) {
-  document.getElementById("status").textContent = "GPS error: " + error.message;
-}
+  await set(ref(database, "incidentCounter/" + dateCode), nextNumber);
 
-function downloadCSV() {
-  let csv = "time,latitude,longitude,accuracy\n";
+  const paddedNumber = String(nextNumber).padStart(3, "0");
 
-  breadcrumbs.forEach(point => {
-    csv += `${point.time},${point.latitude},${point.longitude},${point.accuracy}\n`;
-  });
-
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "beast_scout_breadcrumbs.csv";
-  link.click();
+  return `BEAST-${dateCode}-${paddedNumber}`;
 }
