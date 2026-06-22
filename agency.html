@@ -22,7 +22,7 @@
       <h2>Live Alert Status</h2>
 
       <div class="info-box">
-        <p id="agencyStatus">Waiting for alert...</p>
+        <p id="agencyStatus">No active alert. Waiting for new incident...</p>
         <p id="incidentIdText"></p>
         <p id="troubleLevelText"></p>
         <p id="locationText"></p>
@@ -61,16 +61,19 @@
     <section class="card">
       <h2>Actions</h2>
 
-      <button id="markFoundBtn" type="button">
-        Mark Subject Found
-      </button>
-
-      <button id="resetAlertBtn" type="button">
-        Reset Active Alert
-      </button>
+      <button id="markFoundBtn" type="button">Mark Subject Found</button>
+      <button id="resetAlertBtn" type="button">Reset Active Alert</button>
+      <button id="showPastBtn" type="button">Show Past Incidents</button>
 
       <div class="info-box">
         <p id="foundStatus"></p>
+      </div>
+    </section>
+
+    <section class="card" id="pastIncidentsSection" style="display: none;">
+      <h2>Past Incidents</h2>
+      <div id="pastIncidentsList" class="info-box">
+        <p>No past incidents loaded yet.</p>
       </div>
     </section>
 
@@ -84,7 +87,9 @@
       ref,
       onValue,
       update,
-      remove
+      remove,
+      get,
+      child
     } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
 
     const firebaseConfig = {
@@ -109,8 +114,13 @@
     const sentAtText = document.getElementById("sentAtText");
     const timerText = document.getElementById("timerText");
     const foundStatus = document.getElementById("foundStatus");
+
     const markFoundBtn = document.getElementById("markFoundBtn");
     const resetAlertBtn = document.getElementById("resetAlertBtn");
+    const showPastBtn = document.getElementById("showPastBtn");
+
+    const pastIncidentsSection = document.getElementById("pastIncidentsSection");
+    const pastIncidentsList = document.getElementById("pastIncidentsList");
 
     const route1Confidence = document.getElementById("route1Confidence");
     const route2Confidence = document.getElementById("route2Confidence");
@@ -119,6 +129,7 @@
     let activeIncident = null;
     let alertStartTime = null;
     let timerInterval = null;
+    let pastVisible = false;
 
     const activeAlertRef = ref(database, "activeAlert");
 
@@ -129,7 +140,6 @@
       }
 
       const alert = snapshot.val();
-      activeIncident = alert;
 
       if (alert.alertActive !== true || alert.status === "CLOSED") {
         clearAgencyScreen();
@@ -154,33 +164,64 @@
       const secondsToLocate = Math.floor((foundAt - alertStartTime) / 1000);
       const timeToLocate = formatTime(secondsToLocate);
 
-      await update(ref(database, "activeAlert"), {
+      const completedData = {
         status: "FOUND",
         alertActive: false,
         missionStarted: false,
         found: true,
         foundAt: foundAt.toISOString(),
         timeToLocate: timeToLocate
-      });
+      };
 
-      await update(ref(database, `incidents/${activeIncident.incidentId}`), {
-        status: "FOUND",
-        alertActive: false,
-        missionStarted: false,
-        found: true,
-        foundAt: foundAt.toISOString(),
-        timeToLocate: timeToLocate
-      });
+      await update(ref(database, "activeAlert"), completedData);
+      await update(ref(database, `incidents/${activeIncident.incidentId}`), completedData);
 
       foundStatus.textContent = `Subject found. Time To Locate: ${timeToLocate}`;
+
+      setTimeout(async () => {
+        await remove(ref(database, "activeAlert"));
+        clearAgencyScreen();
+        if (pastVisible) {
+          loadPastIncidents();
+        }
+      }, 1500);
     });
 
     resetAlertBtn.addEventListener("click", async () => {
+      if (activeIncident) {
+        await update(ref(database, `incidents/${activeIncident.incidentId}`), {
+          status: "CLOSED",
+          alertActive: false,
+          missionStarted: false,
+          closedAt: new Date().toISOString()
+        });
+      }
+
       await remove(ref(database, "activeAlert"));
       clearAgencyScreen();
+
+      if (pastVisible) {
+        loadPastIncidents();
+      }
+    });
+
+    showPastBtn.addEventListener("click", async () => {
+      pastVisible = !pastVisible;
+
+      if (pastVisible) {
+        pastIncidentsSection.style.display = "block";
+        showPastBtn.textContent = "Hide Past Incidents";
+        await loadPastIncidents();
+      } else {
+        pastIncidentsSection.style.display = "none";
+        showPastBtn.textContent = "Show Past Incidents";
+      }
     });
 
     function showActiveIncident(alert) {
+      activeIncident = alert;
+      alertStartTime = new Date(alert.sentAt);
+
       agencyStatus.textContent = "ALERT RECEIVED";
       incidentIdText.textContent = `Incident ID: ${alert.incidentId}`;
       troubleLevelText.textContent = `Trouble Level: ${alert.troubleLevel}`;
@@ -188,17 +229,17 @@
       accuracyText.textContent = `Accuracy: ${Math.round(alert.accuracyMeters)} meters`;
       sentAtText.textContent = `Sent At: ${new Date(alert.sentAt).toLocaleString()}`;
 
-      route1Confidence.textContent = alert.confidenceRoute1;
-      route2Confidence.textContent = alert.confidenceRoute2;
-      route3Confidence.textContent = alert.confidenceRoute3;
+      route1Confidence.textContent = alert.confidenceRoute1 || "--";
+      route2Confidence.textContent = alert.confidenceRoute2 || "--";
+      route3Confidence.textContent = alert.confidenceRoute3 || "--";
 
-      alertStartTime = new Date(alert.sentAt);
       foundStatus.textContent = "Subject not marked found yet.";
 
       startTimer();
     }
 
     function showFoundIncident(alert) {
+      activeIncident = alert;
       stopTimer();
 
       agencyStatus.textContent = "SUBJECT FOUND";
@@ -207,6 +248,10 @@
       locationText.textContent = `Location: ${Number(alert.latitude).toFixed(6)}, ${Number(alert.longitude).toFixed(6)}`;
       accuracyText.textContent = `Accuracy: ${Math.round(alert.accuracyMeters)} meters`;
       sentAtText.textContent = `Sent At: ${new Date(alert.sentAt).toLocaleString()}`;
+
+      route1Confidence.textContent = alert.confidenceRoute1 || "--";
+      route2Confidence.textContent = alert.confidenceRoute2 || "--";
+      route3Confidence.textContent = alert.confidenceRoute3 || "--";
 
       timerText.textContent = alert.timeToLocate || "00:00:00";
       foundStatus.textContent = `Mission complete. Time To Locate: ${alert.timeToLocate || "Not recorded"}`;
@@ -231,6 +276,44 @@
 
       timerText.textContent = "00:00:00";
       foundStatus.textContent = "";
+    }
+
+    async function loadPastIncidents() {
+      const dbRef = ref(database);
+      const snapshot = await get(child(dbRef, "incidents"));
+
+      if (!snapshot.exists()) {
+        pastIncidentsList.innerHTML = "<p>No past incidents found.</p>";
+        return;
+      }
+
+      const incidents = snapshot.val();
+
+      const incidentArray = Object.values(incidents).sort((a, b) => {
+        return new Date(b.sentAt) - new Date(a.sentAt);
+      });
+
+      pastIncidentsList.innerHTML = "";
+
+      incidentArray.forEach((incident) => {
+        const incidentCard = document.createElement("div");
+        incidentCard.className = "route-card";
+
+        const status = incident.status || "UNKNOWN";
+        const ttl = incident.timeToLocate || "Not recorded";
+        const sentAt = incident.sentAt ? new Date(incident.sentAt).toLocaleString() : "Unknown";
+
+        incidentCard.innerHTML = `
+          <h3>${incident.incidentId}</h3>
+          <p><strong>Status:</strong> ${status}</p>
+          <p><strong>Trouble Level:</strong> ${incident.troubleLevel || "Unknown"}</p>
+          <p><strong>Sent At:</strong> ${sentAt}</p>
+          <p><strong>Time To Locate:</strong> ${ttl}</p>
+          <p><strong>Location:</strong> ${Number(incident.latitude).toFixed(6)}, ${Number(incident.longitude).toFixed(6)}</p>
+        `;
+
+        pastIncidentsList.appendChild(incidentCard);
+      });
     }
 
     function startTimer() {
