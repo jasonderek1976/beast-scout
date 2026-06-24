@@ -1,314 +1,767 @@
-from flask import Flask, request, jsonify, render_template_string
-from datetime import datetime
-
-app = Flask(__name__)
-
-latest_report = None
-breadcrumbs = []
-
-
-HTML_PAGE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>BEAST Scout View</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BEAST Scout</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #111;
-            color: white;
-            margin: 0;
-            padding: 15px;
-        }
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #0f1a23;
+      color: white;
+      padding: 20px;
+    }
 
-        h1 {
-            text-align: center;
-            margin-bottom: 5px;
-        }
+    button {
+      width: 100%;
+      padding: 12px;
+      margin: 6px 0;
+      font-size: 18px;
+      border-radius: 6px;
+      border: none;
+    }
 
-        .status {
-            text-align: center;
-            margin-bottom: 15px;
-            color: #ccc;
-        }
+    .help-button {
+      background: #f0c94a;
+      color: #111;
+      font-weight: bold;
+    }
 
-        #map {
-            height: 350px;
-            width: 100%;
-            border-radius: 12px;
-            margin-bottom: 15px;
-            background: #333;
-        }
+    .urgent-button {
+      background: #f08a24;
+      color: #111;
+      font-weight: bold;
+    }
 
-        button {
-            width: 100%;
-            padding: 16px;
-            margin: 7px 0;
-            font-size: 18px;
-            border: none;
-            border-radius: 10px;
-            font-weight: bold;
-        }
+    .emergency-button {
+      background: #c62828;
+      color: white;
+      font-weight: bold;
+    }
 
-        .start { background: #2ecc71; }
-        .stop { background: #e67e22; }
-        .reset { background: #95a5a6; }
-        .assist { background: #f1c40f; }
-        .urgent { background: #e67e22; }
-        .emergency { background: #e74c3c; color: white; }
-        .medical { background: #3498db; color: white; }
+    .medic-button {
+      background: #7b1fa2;
+      color: white;
+      font-weight: bold;
+    }
 
-        .card {
-            background: #222;
-            padding: 12px;
-            border-radius: 10px;
-            margin-top: 10px;
-            line-height: 1.5;
-        }
+    #map {
+      height: 400px;
+      width: 100%;
+      margin-top: 15px;
+      border-radius: 8px;
+    }
 
-        .section-title {
-            margin-top: 18px;
-            font-size: 20px;
-            font-weight: bold;
-            color: #ddd;
-        }
-    </style>
+    .card {
+      background: #1d2d3a;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 15px;
+    }
+
+    pre {
+      white-space: pre-wrap;
+      background: #081018;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+  </style>
 </head>
 
 <body>
+  <h1>BEAST Scout</h1>
+  <p>Scout User App v1.0</p>
 
-    <h1>BEAST Scout</h1>
-    <div class="status" id="status">Ready</div>
+  <button onclick="startTracking()">Start Tracking</button>
+  <button onclick="stopTracking()">Stop Tracking</button>
+  <button onclick="resetTracking()">Reset Tracking Data</button>
 
-    <div id="map"></div>
+  <div class="card">
+    <h2>Emergency Actions</h2>
+    <button class="help-button" onclick="setEmergencyLevel('Need Help')">Tier 1: Need Help</button>
+    <button class="urgent-button" onclick="setEmergencyLevel('Urgent Help')">Tier 2: Urgent Help</button>
+    <button class="emergency-button" onclick="setEmergencyLevel('Life Threatening Emergency')">Tier 3: Life Threatening Emergency</button>
+    <button class="medic-button" onclick="toggleMedicFlag()">Medic / Injury</button>
+  </div>
 
-    <div class="section-title">Tracking</div>
+  <button onclick="generateSitrep()">Generate Auto SITREP</button>
+  <button onclick="downloadBreadcrumbs()">Download Breadcrumbs</button>
 
-    <button class="start" onclick="startTracking()">Start Tracking</button>
-    <button class="stop" onclick="stopTracking()">Stop Tracking</button>
-    <button class="reset" onclick="resetTracking()">Reset</button>
+  <div class="card">
+    <p><strong>Status:</strong> <span id="status">Not tracking</span></p>
+    <p><strong>Emergency Level:</strong> <span id="emergencyLevel">None</span></p>
+    <p><strong>Medic / Injury:</strong> <span id="medicStatus">No</span></p>
 
-    <div class="section-title">Emergency</div>
+    <p><strong>Movement Status:</strong> <span id="movementStatus">Unknown</span></p>
+    <p><strong>Location Confidence:</strong> <span id="locationConfidence">Unknown</span></p>
+    <p><strong>Travel Trend:</strong> <span id="travelTrend">Unknown</span></p>
+    <p><strong>Travel Trend Confidence:</strong> <span id="travelTrendConfidence">Unknown</span></p>
+    <p><strong>Estimated Search Radius:</strong> <span id="searchRadius">Unknown</span></p>
 
-    <button class="assist" onclick="sendEmergency('Assistance Needed')">
-        Assistance Needed
-    </button>
+    <p><strong>Latitude:</strong> <span id="lat">Waiting...</span></p>
+    <p><strong>Longitude:</strong> <span id="lon">Waiting...</span></p>
+    <p><strong>Accuracy:</strong> <span id="accuracy">Waiting...</span></p>
+    <p><strong>Altitude:</strong> <span id="altitude">Waiting...</span></p>
+    <p><strong>Altitude Accuracy:</strong> <span id="altitudeAccuracy">Waiting...</span></p>
 
-    <button class="urgent" onclick="sendEmergency('Urgent Assistance')">
-        Urgent Assistance
-    </button>
+    <p><strong>Elevation Gain:</strong> <span id="elevationGain">0 ft</span></p>
+    <p><strong>Elevation Loss:</strong> <span id="elevationLoss">0 ft</span></p>
+    <p><strong>Saved Points:</strong> <span id="points">0</span></p>
+    <p><strong>Distance Traveled:</strong> <span id="distance">0.00 mi</span></p>
+    <p><strong>Current Speed:</strong> <span id="currentSpeed">0.00 mph</span></p>
+    <p><strong>Average Speed:</strong> <span id="averageSpeed">0.00 mph</span></p>
+    <p><strong>Direction of Travel:</strong> <span id="heading">Unknown</span></p>
+    <p><strong>Last Movement:</strong> <span id="lastMovement">Waiting...</span></p>
+    <p><strong>Last GPS Update:</strong> <span id="lastUpdate">Waiting...</span></p>
+    <p><strong>Last GPS Age:</strong> <span id="gpsAge">Waiting...</span></p>
+    <p><strong>Battery:</strong> <span id="battery">Not available</span></p>
+  </div>
 
-    <button class="emergency" onclick="sendEmergency('Emergency')">
-        Emergency
-    </button>
+  <div id="map"></div>
 
-    <button class="medical" onclick="sendEmergency('Medical / Injury')">
-        Medical / Injury
-    </button>
+  <div class="card">
+    <h2>Auto SITREP</h2>
+    <pre id="sitrep">No SITREP generated yet.</pre>
+  </div>
 
-    <div class="card" id="info">
-        No active tracking yet.
-    </div>
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-<script>
-let watchId = null;
-let trackingActive = false;
-let breadcrumbs = [];
-let map;
-let marker;
-let pathLine;
+  <script>
+    let watchId = null;
+    let breadcrumbs = [];
+    let totalDistanceMeters = 0;
+    let totalElevationGainMeters = 0;
+    let totalElevationLossMeters = 0;
+    let trackingStartTime = null;
+    let lastGpsUpdateTime = null;
+    let lastMovementTime = null;
 
-function initMap() {
-    const startPoint = { lat: 30.6333, lng: -97.6780 };
+    let emergencyLevel = "None";
+    let medicFlag = false;
 
-    map = new google.maps.Map(document.getElementById("map"), {
-        zoom: 16,
-        center: startPoint,
-        mapTypeId: "terrain"
-    });
+    let currentHeadingText = "Unknown";
+    let currentMovementStatus = "Unknown";
+    let currentLocationConfidenceText = "Unknown";
+    let currentLocationConfidenceScore = 0;
+    let currentTravelTrendText = "Unknown";
+    let currentTravelTrendConfidenceScore = 0;
+    let currentSearchRadiusMiles = 0;
 
-    marker = new google.maps.Marker({
-        position: startPoint,
-        map: map,
-        title: "Current Location"
-    });
+    const elevationNoiseFilterMeters = 4.0;
+    const movementThresholdMeters = 10;
+    const stationaryMinutesThreshold = 5;
 
-    pathLine = new google.maps.Polyline({
-        path: [],
-        geodesic: true,
-        strokeOpacity: 1.0,
-        strokeWeight: 4,
-        map: map
-    });
-}
+    let map = L.map('map').setView([30.63, -97.65], 16);
 
-function startTracking() {
-    if (!navigator.geolocation) {
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19
+    }).addTo(map);
+
+    let pathLine = L.polyline([], { weight: 5 }).addTo(map);
+    let currentMarker = null;
+
+    checkBattery();
+    setInterval(updateLiveTimers, 1000);
+
+    function startTracking() {
+      if (!navigator.geolocation) {
         alert("GPS is not supported on this device.");
         return;
-    }
+      }
 
-    if (trackingActive) {
-        return;
-    }
+      document.getElementById("status").textContent = "Tracking";
 
-    trackingActive = true;
-    document.getElementById("status").innerText = "LIVE TRACKING ACTIVE";
+      if (trackingStartTime === null) {
+        trackingStartTime = new Date();
+      }
 
-    watchId = navigator.geolocation.watchPosition(
-        handlePosition,
-        handleError,
+      watchId = navigator.geolocation.watchPosition(
+        savePosition,
+        showError,
         {
-            enableHighAccuracy: true,
-            maximumAge: 0,
-            timeout: 10000
+          enableHighAccuracy: true,
+          maximumAge: 0,
+          timeout: 10000
         }
-    );
-}
+      );
+    }
 
-function stopTracking() {
-    if (watchId !== null) {
+    function stopTracking() {
+      if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
+      }
+
+      document.getElementById("status").textContent = "Stopped";
     }
 
-    trackingActive = false;
-    document.getElementById("status").innerText = "Tracking stopped";
-}
-
-function resetTracking() {
-    stopTracking();
-
-    breadcrumbs = [];
-    pathLine.setPath([]);
-
-    document.getElementById("status").innerText = "Ready";
-    document.getElementById("info").innerHTML = "No active tracking yet.";
-}
-
-function sendEmergency(type) {
-    startTracking();
-
-    document.getElementById("status").innerText =
-        type + " SENT - LIVE TRACKING ACTIVE";
-
-    if (breadcrumbs.length > 0) {
-        const lastPoint = breadcrumbs[breadcrumbs.length - 1];
-        sendReport(type, lastPoint);
+    function setEmergencyLevel(level) {
+      emergencyLevel = level;
+      document.getElementById("emergencyLevel").textContent = emergencyLevel;
+      generateSitrep();
     }
-}
 
-function handlePosition(position) {
-    const point = {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        altitude: position.coords.altitude,
-        accuracy: position.coords.accuracy,
-        speed: position.coords.speed,
-        heading: position.coords.heading,
-        timestamp: new Date().toISOString()
-    };
+    function toggleMedicFlag() {
+      medicFlag = !medicFlag;
+      document.getElementById("medicStatus").textContent = medicFlag ? "Yes" : "No";
+      generateSitrep();
+    }
 
-    breadcrumbs.push(point);
+    function resetTracking() {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
 
-    const mapPoint = {
-        lat: point.latitude,
-        lng: point.longitude
-    };
+      breadcrumbs = [];
+      totalDistanceMeters = 0;
+      totalElevationGainMeters = 0;
+      totalElevationLossMeters = 0;
+      trackingStartTime = null;
+      lastGpsUpdateTime = null;
+      lastMovementTime = null;
 
-    marker.setPosition(mapPoint);
-    map.setCenter(mapPoint);
+      emergencyLevel = "None";
+      medicFlag = false;
 
-    const currentPath = pathLine.getPath();
-    currentPath.push(new google.maps.LatLng(point.latitude, point.longitude));
+      currentHeadingText = "Unknown";
+      currentMovementStatus = "Unknown";
+      currentLocationConfidenceText = "Unknown";
+      currentLocationConfidenceScore = 0;
+      currentTravelTrendText = "Unknown";
+      currentTravelTrendConfidenceScore = 0;
+      currentSearchRadiusMiles = 0;
 
-    updateInfo(point);
+      pathLine.setLatLngs([]);
 
-    sendReport("Tracking Update", point);
-}
+      if (currentMarker !== null) {
+        map.removeLayer(currentMarker);
+        currentMarker = null;
+      }
 
-function sendReport(type, point) {
-    fetch("/report", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            type: type,
-            point: point,
-            breadcrumb_count: breadcrumbs.length
-        })
-    });
-}
+      document.getElementById("status").textContent = "Not tracking";
+      document.getElementById("emergencyLevel").textContent = "None";
+      document.getElementById("medicStatus").textContent = "No";
+      document.getElementById("movementStatus").textContent = "Unknown";
+      document.getElementById("locationConfidence").textContent = "Unknown";
+      document.getElementById("travelTrend").textContent = "Unknown";
+      document.getElementById("travelTrendConfidence").textContent = "Unknown";
+      document.getElementById("searchRadius").textContent = "Unknown";
+      document.getElementById("lat").textContent = "Waiting...";
+      document.getElementById("lon").textContent = "Waiting...";
+      document.getElementById("accuracy").textContent = "Waiting...";
+      document.getElementById("altitude").textContent = "Waiting...";
+      document.getElementById("altitudeAccuracy").textContent = "Waiting...";
+      document.getElementById("elevationGain").textContent = "0 ft";
+      document.getElementById("elevationLoss").textContent = "0 ft";
+      document.getElementById("points").textContent = "0";
+      document.getElementById("distance").textContent = "0.00 mi";
+      document.getElementById("currentSpeed").textContent = "0.00 mph";
+      document.getElementById("averageSpeed").textContent = "0.00 mph";
+      document.getElementById("heading").textContent = "Unknown";
+      document.getElementById("lastMovement").textContent = "Waiting...";
+      document.getElementById("lastUpdate").textContent = "Waiting...";
+      document.getElementById("gpsAge").textContent = "Waiting...";
+      document.getElementById("sitrep").textContent = "No SITREP generated yet.";
+    }
 
-function updateInfo(point) {
-    document.getElementById("info").innerHTML = `
-        <strong>Current Location</strong><br>
-        Latitude: ${point.latitude}<br>
-        Longitude: ${point.longitude}<br>
-        Altitude: ${point.altitude ?? "Not available"}<br>
-        Accuracy: ${Math.round(point.accuracy)} meters<br>
-        Speed: ${point.speed ?? "Not available"}<br>
-        Heading: ${point.heading ?? "Not available"}<br>
-        Breadcrumbs: ${breadcrumbs.length}<br>
-        Last Update: ${point.timestamp}
-    `;
-}
+    function savePosition(position) {
+      let lat = position.coords.latitude;
+      let lon = position.coords.longitude;
+      let accuracy = position.coords.accuracy;
+      let altitude = position.coords.altitude;
+      let altitudeAccuracy = position.coords.altitudeAccuracy;
+      let time = new Date();
 
-function handleError(error) {
-    document.getElementById("status").innerText = "GPS error: " + error.message;
-}
-</script>
+      lastGpsUpdateTime = time;
 
-<script async defer
-src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&callback=initMap">
-</script>
+      let currentSpeedMph = 0;
 
+      let point = {
+        time: time.toISOString(),
+        latitude: lat,
+        longitude: lon,
+        accuracy: accuracy,
+        altitude: altitude,
+        altitudeAccuracy: altitudeAccuracy,
+        emergencyLevel: emergencyLevel,
+        medicFlag: medicFlag,
+        movementStatus: currentMovementStatus,
+        heading: currentHeadingText
+      };
+
+      if (breadcrumbs.length > 0) {
+        let lastPoint = breadcrumbs[breadcrumbs.length - 1];
+
+        let stepDistance = calculateDistanceMeters(
+          lastPoint.latitude,
+          lastPoint.longitude,
+          lat,
+          lon
+        );
+
+        let lastTime = new Date(lastPoint.time);
+        let secondsBetweenPoints = (time - lastTime) / 1000;
+
+        if (secondsBetweenPoints > 0) {
+          currentSpeedMph = metersPerSecondToMph(stepDistance / secondsBetweenPoints);
+        }
+
+        totalDistanceMeters += stepDistance;
+
+        if (stepDistance >= movementThresholdMeters) {
+          lastMovementTime = time;
+          currentMovementStatus = "Moving";
+          currentHeadingText = calculateHeadingText(
+            lastPoint.latitude,
+            lastPoint.longitude,
+            lat,
+            lon
+          );
+        } else {
+          currentMovementStatus = getStationaryStatus(time);
+        }
+
+        if (altitude !== null && lastPoint.altitude !== null) {
+          let elevationChange = altitude - lastPoint.altitude;
+
+          if (Math.abs(elevationChange) >= elevationNoiseFilterMeters) {
+            if (elevationChange > 0) {
+              totalElevationGainMeters += elevationChange;
+            } else {
+              totalElevationLossMeters += Math.abs(elevationChange);
+            }
+          }
+        }
+      } else {
+        lastMovementTime = time;
+        currentMovementStatus = "Starting";
+      }
+
+      point.movementStatus = currentMovementStatus;
+      point.heading = currentHeadingText;
+
+      breadcrumbs.push(point);
+
+      let totalDistanceMiles = totalDistanceMeters / 1609.344;
+      let elevationGainFeet = totalElevationGainMeters * 3.28084;
+      let elevationLossFeet = totalElevationLossMeters * 3.28084;
+      let averageSpeedMph = calculateAverageSpeedMph(time, totalDistanceMiles);
+
+      updateConfidence(accuracy, altitudeAccuracy);
+      updateTravelTrend();
+      updateSearchRadius(averageSpeedMph);
+
+      document.getElementById("lat").textContent = lat.toFixed(6);
+      document.getElementById("lon").textContent = lon.toFixed(6);
+      document.getElementById("accuracy").textContent = accuracy.toFixed(1) + " m";
+
+      document.getElementById("altitude").textContent =
+        altitude === null ? "Not available" : altitude.toFixed(1) + " m";
+
+      document.getElementById("altitudeAccuracy").textContent =
+        altitudeAccuracy === null ? "Not available" : altitudeAccuracy.toFixed(1) + " m";
+
+      document.getElementById("elevationGain").textContent = elevationGainFeet.toFixed(0) + " ft";
+      document.getElementById("elevationLoss").textContent = elevationLossFeet.toFixed(0) + " ft";
+      document.getElementById("points").textContent = breadcrumbs.length;
+      document.getElementById("distance").textContent = totalDistanceMiles.toFixed(2) + " mi";
+      document.getElementById("currentSpeed").textContent = currentSpeedMph.toFixed(2) + " mph";
+      document.getElementById("averageSpeed").textContent = averageSpeedMph.toFixed(2) + " mph";
+      document.getElementById("heading").textContent = currentHeadingText;
+      document.getElementById("movementStatus").textContent = currentMovementStatus;
+      document.getElementById("locationConfidence").textContent =
+        currentLocationConfidenceText + " (" + currentLocationConfidenceScore + "%)";
+      document.getElementById("travelTrend").textContent = currentTravelTrendText;
+      document.getElementById("travelTrendConfidence").textContent =
+        currentTravelTrendConfidenceScore + "%";
+      document.getElementById("searchRadius").textContent =
+        currentSearchRadiusMiles.toFixed(2) + " mi";
+      document.getElementById("lastMovement").textContent = formatTimeAgo(lastMovementTime);
+      document.getElementById("lastUpdate").textContent = time.toLocaleTimeString();
+
+      let mapPoint = [lat, lon];
+
+      pathLine.addLatLng(mapPoint);
+      map.setView(mapPoint, 17);
+
+      if (currentMarker === null) {
+        currentMarker = L.marker(mapPoint).addTo(map);
+      } else {
+        currentMarker.setLatLng(mapPoint);
+      }
+    }
+
+    function updateConfidence(accuracy, altitudeAccuracy) {
+      let score = 0;
+
+      if (accuracy <= 5) score += 40;
+      else if (accuracy <= 10) score += 30;
+      else if (accuracy <= 25) score += 20;
+      else score += 5;
+
+      let gpsAgeSeconds = getSecondsSince(lastGpsUpdateTime);
+
+      if (gpsAgeSeconds <= 30) score += 30;
+      else if (gpsAgeSeconds <= 120) score += 20;
+      else if (gpsAgeSeconds <= 300) score += 10;
+
+      if (breadcrumbs.length >= 50) score += 20;
+      else if (breadcrumbs.length >= 20) score += 15;
+      else if (breadcrumbs.length >= 5) score += 10;
+
+      if (altitudeAccuracy !== null && altitudeAccuracy <= 10) {
+        score += 10;
+      }
+
+      if (score > 100) score = 100;
+
+      currentLocationConfidenceScore = score;
+
+      if (score >= 85) currentLocationConfidenceText = "HIGH";
+      else if (score >= 65) currentLocationConfidenceText = "MEDIUM";
+      else currentLocationConfidenceText = "LOW";
+    }
+
+    function updateTravelTrend() {
+      let usablePoints = getMovementPoints();
+
+      if (usablePoints.length < 4) {
+        currentTravelTrendText = "Not enough movement data";
+        currentTravelTrendConfidenceScore = 0;
+        return;
+      }
+
+      let recentPoints = usablePoints.slice(-8);
+      let headings = [];
+
+      for (let i = 1; i < recentPoints.length; i++) {
+        let bearing = calculateBearingDegrees(
+          recentPoints[i - 1].latitude,
+          recentPoints[i - 1].longitude,
+          recentPoints[i].latitude,
+          recentPoints[i].longitude
+        );
+
+        headings.push(bearing);
+      }
+
+      let averageBearing = circularMeanDegrees(headings);
+      let averageDifference = averageBearingDifference(headings, averageBearing);
+      let trendDirection = bearingToText(averageBearing);
+
+      if (averageDifference <= 30) {
+        currentTravelTrendText = "Consistent " + trendDirection;
+        currentTravelTrendConfidenceScore = Math.round(100 - averageDifference);
+      } else if (averageDifference <= 70) {
+        currentTravelTrendText = "Mostly " + trendDirection;
+        currentTravelTrendConfidenceScore = Math.round(85 - averageDifference / 2);
+      } else {
+        currentTravelTrendText = "Erratic movement";
+        currentTravelTrendConfidenceScore = Math.round(Math.max(25, 80 - averageDifference / 2));
+      }
+    }
+
+    function updateSearchRadius(averageSpeedMph) {
+      if (lastGpsUpdateTime === null) {
+        currentSearchRadiusMiles = 0;
+        return;
+      }
+
+      let gpsAgeHours = getSecondsSince(lastGpsUpdateTime) / 3600;
+      let baseRadius = averageSpeedMph * gpsAgeHours;
+      let uncertaintyBuffer = 0.03;
+
+      if (currentLocationConfidenceScore < 65) {
+        uncertaintyBuffer = 0.15;
+      } else if (currentLocationConfidenceScore < 85) {
+        uncertaintyBuffer = 0.08;
+      }
+
+      currentSearchRadiusMiles = baseRadius + uncertaintyBuffer;
+    }
+
+    function generateSitrep() {
+      if (breadcrumbs.length === 0) {
+        document.getElementById("sitrep").textContent = "No location data available yet.";
+        return;
+      }
+
+      let lastPoint = breadcrumbs[breadcrumbs.length - 1];
+      let distanceMiles = totalDistanceMeters / 1609.344;
+      let elevationGainFeet = totalElevationGainMeters * 3.28084;
+      let elevationLossFeet = totalElevationLossMeters * 3.28084;
+
+      let sitrep =
+`BEAST AUTO SITREP
+
+Emergency Level:
+${emergencyLevel}
+
+Medic / Injury:
+${medicFlag ? "Yes" : "No"}
+
+Subject Status:
+${currentMovementStatus}
+
+Location Confidence:
+${currentLocationConfidenceText} (${currentLocationConfidenceScore}%)
+
+Travel Trend:
+${currentTravelTrendText}
+
+Travel Trend Confidence:
+${currentTravelTrendConfidenceScore}%
+
+Estimated Search Radius:
+${currentSearchRadiusMiles.toFixed(2)} mi
+
+Last Known Location:
+${lastPoint.latitude.toFixed(6)}
+${lastPoint.longitude.toFixed(6)}
+
+GPS Accuracy:
+${lastPoint.accuracy.toFixed(1)} m
+
+Altitude:
+${lastPoint.altitude === null ? "Not available" : lastPoint.altitude.toFixed(1) + " m"}
+
+Altitude Accuracy:
+${lastPoint.altitudeAccuracy === null ? "Not available" : lastPoint.altitudeAccuracy.toFixed(1) + " m"}
+
+Direction of Travel:
+${currentHeadingText}
+
+Distance Traveled:
+${distanceMiles.toFixed(2)} mi
+
+Elevation Change:
++${elevationGainFeet.toFixed(0)} ft / -${elevationLossFeet.toFixed(0)} ft
+
+Last Movement:
+${formatTimeAgo(lastMovementTime)}
+
+Last GPS Update:
+${formatTimeAgo(lastGpsUpdateTime)}
+
+Saved Breadcrumb Points:
+${breadcrumbs.length}
+
+Generated:
+${new Date().toLocaleString()}`;
+
+      document.getElementById("sitrep").textContent = sitrep;
+    }
+
+    function downloadBreadcrumbs() {
+      if (breadcrumbs.length === 0) {
+        alert("No breadcrumbs saved yet.");
+        return;
+      }
+
+      let csv = "time,latitude,longitude,accuracy,altitude,altitudeAccuracy,emergencyLevel,medicFlag,movementStatus,heading,locationConfidence,travelTrend,travelTrendConfidence,searchRadiusMiles,distanceMiles,elevationGainFeet,elevationLossFeet\n";
+
+      breadcrumbs.forEach(point => {
+        csv += `${point.time},${point.latitude},${point.longitude},${point.accuracy},${point.altitude},${point.altitudeAccuracy},${point.emergencyLevel},${point.medicFlag},${point.movementStatus},${point.heading},${currentLocationConfidenceScore},${currentTravelTrendText},${currentTravelTrendConfidenceScore},${currentSearchRadiusMiles.toFixed(2)},${(totalDistanceMeters / 1609.344).toFixed(2)},${(totalElevationGainMeters * 3.28084).toFixed(0)},${(totalElevationLossMeters * 3.28084).toFixed(0)}\n`;
+      });
+
+      let blob = new Blob([csv], { type: "text/csv" });
+      let url = URL.createObjectURL(blob);
+
+      let link = document.createElement("a");
+      link.href = url;
+      link.download = "beast_scout_breadcrumbs_app.csv";
+      link.click();
+
+      URL.revokeObjectURL(url);
+    }
+
+    function getMovementPoints() {
+      let points = [];
+
+      for (let i = 1; i < breadcrumbs.length; i++) {
+        let previous = breadcrumbs[i - 1];
+        let current = breadcrumbs[i];
+
+        let distance = calculateDistanceMeters(
+          previous.latitude,
+          previous.longitude,
+          current.latitude,
+          current.longitude
+        );
+
+        if (distance >= movementThresholdMeters) {
+          points.push(current);
+        }
+      }
+
+      return points;
+    }
+
+    function getStationaryStatus(currentTime) {
+      if (lastMovementTime === null) return "Unknown";
+
+      let minutesSinceMovement = (currentTime - lastMovementTime) / 1000 / 60;
+
+      if (minutesSinceMovement >= stationaryMinutesThreshold) {
+        return "Stationary";
+      }
+
+      return "Minimal Movement";
+    }
+
+    function updateLiveTimers() {
+      document.getElementById("gpsAge").textContent = formatTimeAgo(lastGpsUpdateTime);
+      document.getElementById("lastMovement").textContent = formatTimeAgo(lastMovementTime);
+      updateSearchRadiusFromCurrentData();
+    }
+
+    function updateSearchRadiusFromCurrentData() {
+      if (breadcrumbs.length === 0 || trackingStartTime === null) return;
+
+      let distanceMiles = totalDistanceMeters / 1609.344;
+      let now = new Date();
+      let averageSpeedMph = calculateAverageSpeedMph(now, distanceMiles);
+
+      updateSearchRadius(averageSpeedMph);
+
+      document.getElementById("searchRadius").textContent =
+        currentSearchRadiusMiles.toFixed(2) + " mi";
+    }
+
+    function calculateAverageSpeedMph(currentTime, distanceMiles) {
+      if (trackingStartTime === null) return 0;
+
+      let hoursTracked = (currentTime - trackingStartTime) / 1000 / 60 / 60;
+
+      if (hoursTracked <= 0) return 0;
+
+      return distanceMiles / hoursTracked;
+    }
+
+    function formatTimeAgo(dateValue) {
+      if (dateValue === null) return "Waiting...";
+
+      let seconds = Math.floor((new Date() - dateValue) / 1000);
+
+      if (seconds < 60) return seconds + " sec ago";
+
+      let minutes = Math.floor(seconds / 60);
+
+      if (minutes < 60) return minutes + " min ago";
+
+      let hours = Math.floor(minutes / 60);
+      return hours + " hr ago";
+    }
+
+    function getSecondsSince(dateValue) {
+      if (dateValue === null) return 999999;
+      return Math.floor((new Date() - dateValue) / 1000);
+    }
+
+    function calculateHeadingText(lat1, lon1, lat2, lon2) {
+      return bearingToText(calculateBearingDegrees(lat1, lon1, lat2, lon2));
+    }
+
+    function bearingToText(bearing) {
+      if (bearing >= 337.5 || bearing < 22.5) return "North";
+      if (bearing >= 22.5 && bearing < 67.5) return "Northeast";
+      if (bearing >= 67.5 && bearing < 112.5) return "East";
+      if (bearing >= 112.5 && bearing < 157.5) return "Southeast";
+      if (bearing >= 157.5 && bearing < 202.5) return "South";
+      if (bearing >= 202.5 && bearing < 247.5) return "Southwest";
+      if (bearing >= 247.5 && bearing < 292.5) return "West";
+      return "Northwest";
+    }
+
+    function calculateBearingDegrees(lat1, lon1, lat2, lon2) {
+      let startLat = lat1 * Math.PI / 180;
+      let endLat = lat2 * Math.PI / 180;
+      let differenceLon = (lon2 - lon1) * Math.PI / 180;
+
+      let y = Math.sin(differenceLon) * Math.cos(endLat);
+      let x =
+        Math.cos(startLat) * Math.sin(endLat) -
+        Math.sin(startLat) * Math.cos(endLat) * Math.cos(differenceLon);
+
+      let bearing = Math.atan2(y, x) * 180 / Math.PI;
+      return (bearing + 360) % 360;
+    }
+
+    function circularMeanDegrees(degreesArray) {
+      let sinSum = 0;
+      let cosSum = 0;
+
+      degreesArray.forEach(deg => {
+        let rad = deg * Math.PI / 180;
+        sinSum += Math.sin(rad);
+        cosSum += Math.cos(rad);
+      });
+
+      let mean = Math.atan2(sinSum, cosSum) * 180 / Math.PI;
+      return (mean + 360) % 360;
+    }
+
+    function averageBearingDifference(headings, averageBearing) {
+      let totalDifference = 0;
+
+      headings.forEach(heading => {
+        let diff = Math.abs(heading - averageBearing);
+        if (diff > 180) diff = 360 - diff;
+        totalDifference += diff;
+      });
+
+      return totalDifference / headings.length;
+    }
+
+    function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+      const earthRadiusMeters = 6371000;
+
+      const lat1Radians = lat1 * Math.PI / 180;
+      const lat2Radians = lat2 * Math.PI / 180;
+
+      const latitudeChange = (lat2 - lat1) * Math.PI / 180;
+      const longitudeChange = (lon2 - lon1) * Math.PI / 180;
+
+      const a =
+        Math.sin(latitudeChange / 2) * Math.sin(latitudeChange / 2) +
+        Math.cos(lat1Radians) * Math.cos(lat2Radians) *
+        Math.sin(longitudeChange / 2) * Math.sin(longitudeChange / 2);
+
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+      return earthRadiusMeters * c;
+    }
+
+    function metersPerSecondToMph(metersPerSecond) {
+      return metersPerSecond * 2.236936;
+    }
+
+    function checkBattery() {
+      if ("getBattery" in navigator) {
+        navigator.getBattery().then(function(battery) {
+          updateBatteryDisplay(battery);
+
+          battery.addEventListener("levelchange", function() {
+            updateBatteryDisplay(battery);
+          });
+        });
+      } else {
+        document.getElementById("battery").textContent = "Not available on this browser";
+      }
+    }
+
+    function updateBatteryDisplay(battery) {
+      let batteryPercent = Math.round(battery.level * 100);
+      document.getElementById("battery").textContent = batteryPercent + "%";
+    }
+
+    function showError(error) {
+      alert("GPS error: " + error.message);
+    }
+  </script>
 </body>
 </html>
-"""
-
-
-@app.route("/")
-def scout_view():
-    return render_template_string(HTML_PAGE)
-
-
-@app.route("/report", methods=["POST"])
-def receive_report():
-    global latest_report, breadcrumbs
-
-    data = request.get_json()
-
-    if not data:
-        return jsonify({"status": "error", "message": "No data received"}), 400
-
-    latest_report = {
-        "received_at": datetime.now().isoformat(),
-        "type": data.get("type"),
-        "point": data.get("point"),
-        "breadcrumb_count": data.get("breadcrumb_count")
-    }
-
-    point = data.get("point")
-    if point:
-        breadcrumbs.append(point)
-
-    print("NEW SCOUT REPORT")
-    print(latest_report)
-
-    return jsonify({"status": "received"})
-
-
-@app.route("/agency")
-def agency_view():
-    return jsonify({
-        "latest_report": latest_report,
-        "breadcrumbs": breadcrumbs
-    })
-
-
-if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
