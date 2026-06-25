@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+  />
+  <title>BEAST Scout - Emergency Page Test</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-2: #1f2937;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #6b7280;
+      --line: #e5e7eb;
+      --danger: #b91c1c;
+      --danger-dark: #991b1b;
+      --danger-soft: #fee2e2;
+      --success: #166534;
+      --success-soft: #dcfce7;
+      --warning-soft: #fff7ed;
+      --accent: #2563eb;
+      --accent-soft: #dbeafe;
+      --shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+      --radius: 18px;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: linear-gradient(180deg, #e5e7eb 0%, #f8fafc 100%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 14px;
+    }
+
+    .phone {
+      width: 100%;
+      max-width: 430px;
+      min-height: 100vh;
+      background: #f8fafc;
+      border-radius: 26px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar {
+      background: var(--bg);
+      color: #fff;
+      padding: 16px 18px 12px;
+    }
+
+    .brand {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .subtitle {
+      margin-top: 4px;
+      font-size: 0.92rem;
+      color: #cbd5e1;
+    }
+
+    .content {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+    }
+
+    .section {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 14px;
+      box-shadow: 0 3px 12px rgba(0, 0, 0, 0.05);
+    }
+
+    .page-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .page-title h1 {
+      margin: 0;
+      font-size: 1.5rem;
+      line-height: 1.2;
+    }
+
+    .badge {
+      background: var(--danger-soft);
+      color: var(--danger-dark);
+      border: 1px solid #fecaca;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .helper {
+      margin: 0;
+      font-size: 0.97rem;
+      color: #374151;
+      line-height: 1.45;
+    }
+
+    .warning-box {
+      background: var(--warning-soft);
+      border: 1px solid #fed7aa;
+      border-radius: 14px;
+      padding: 12px;
+      margin-top: 12px;
+      font-size: 0.95rem;
+      line-height: 1.45;
+    }
+
+    .sos-wrap {
+      text-align: center;
+    }
+
+    .sos-button {
+      width: 100%;
+      min-height: 88px;
+      border: none;
+      border-radius: 20px;
+      background: linear-gradient(180deg, var(--danger) 0%, var(--danger-dark) 100%);
+      color: #fff;
+      font-size: 1.25rem;
+      font-weight: 800;
+      padding: 18px 16px;
+      cursor: pointer;
+      box-shadow: 0 8px 20px rgba(185, 28, 28, 0.28);
+      transition: transform 0.08s ease, opacity 0.2s ease;
+      user-select: none;
+      touch-action: none;
+    }
+
+    .sos-button:active {
+      transform: scale(0.99);
+    }
+
+    .sos-button.holding {
+      opacity: 0.95;
+      transform: scale(0.995);
+    }
+
+    .sos-button.sent {
+      background: linear-gradient(180deg, #15803d 0%, #166534 100%);
+      box-shadow: 0 8px 20px rgba(22, 101, 52, 0.28);
+    }
+
+    .sos-subtext {
+      margin-top: 10px;
+      font-size: 0.95rem;
+      color: var(--muted);
+    }
+
+    .status-panel {
+      margin-top: 16px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      background: #f9fafb;
+      text-align: left;
+    }
+
+    .status-title {
+      margin: 0 0 10px;
+      font-size: 1.2rem;
+      font-weight: 700;
+    }
+
+    .progress-track {
+      width: 100%;
+      height: 18px;
+      background: #e5e7eb;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid #d1d5db;
+      margin: 10px 0 8px;
+    }
+
+    .progress-fill {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, #111827 0%, #1d4ed8 100%);
+      transition: width 0.04s linear;
+    }
+
+    .progress-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      font-size: 0.95rem;
+      color: #374151;
+    }
+
+    .small-note {
+      margin-top: 8px;
+      font-size: 0.92rem;
+      color: var(--muted);
+    }
+
+    .demo-result {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      font-size: 0.95rem;
+      line-height: 1.4;
+    }
+
+    .demo-result.neutral {
+      background: #f3f4f6;
+      color: #374151;
+      border: 1px solid #e5e7eb;
+    }
+
+    .demo-result.cancel {
+      background: #fff7ed;
+      color: #9a3412;
+      border: 1px solid #fdba74;
+    }
+
+    .demo-result.sent {
+      background: var(--success-soft);
+      color: var(--success);
+      border: 1px solid #86efac;
+    }
+
+    .actions-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .quick-action {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 16px;
+      padding: 14px 10px;
+      font-size: 0.98rem;
+      font-weight: 700;
+      cursor: pointer;
+      min-height: 62px;
+      transition: 0.15s ease;
+    }
+
+    .quick-action:active {
+      transform: scale(0.99);
+    }
+
+    .quick-action.selected {
+      background: var(--accent-soft);
+      border-color: #93c5fd;
+      color: #1d4ed8;
+    }
+
+    .selected-status {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #f3f4f6;
+      border: 1px solid var(--line);
+      font-size: 0.96rem;
+    }
+
+    .control-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .secondary-btn {
+      flex: 1;
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 14px;
+      padding: 12px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .page-indicator {
+      text-align: center;
+      padding: 8px 0 4px;
+      color: #374151;
+    }
+
+    .page-indicator .page-text {
+      font-size: 0.92rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .dots {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #cbd5e1;
+    }
+
+    .dot.active {
+      background: var(--danger);
+      transform: scale(1.08);
+    }
+
+    .bottom-nav {
+      border-top: 1px solid var(--line);
+      background: #ffffff;
+      padding: 10px 8px calc(10px + env(safe-area-inset-bottom));
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+    }
+
+    .nav-btn {
+      border: none;
+      background: transparent;
+      border-radius: 12px;
+      padding: 10px 4px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #4b5563;
+    }
+
+    .nav-btn.active {
+      background: var(--danger-soft);
+      color: var(--danger-dark);
+    }
+
+    @media (max-width: 380px) {
+      .actions-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .page-title {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="phone">
+    <div class="topbar">
+      <div class="brand">BEAST SCOUT</div>
+      <div class="subtitle">Emergency Page Test - Demo Only</div>
+    </div>
+
+    <div class="content">
+      <div class="section">
+        <div class="page-title">
+          <h1>Emergency</h1>
+          <div class="badge">No live alert sending</div>
+        </div>
+        <p class="helper">
+          This page is only for testing the emergency hold behavior. Nothing here sends a real alert.
+        </p>
+        <div class="warning-box">
+          <strong>Design note:</strong> This demo is set to a <strong>3-second hold</strong> so you can test it.
+          If we later decide 3 seconds is too long, you only need to change one number in the script.
+        </div>
+      </div>
+
+      <div class="section sos-wrap">
+        <button id="sosButton" class="sos-button" aria-label="Hold to send SOS">
+          HOLD 3 SECONDS TO SEND SOS
+        </button>
+        <div class="sos-subtext">
+          Press and keep holding. Releasing early cancels the action.
+        </div>
+
+        <div class="status-panel">
+          <h2 id="statusTitle" class="status-title">Ready to test</h2>
+
+          <div class="progress-row">
+            <span id="countdownText">Waiting for hold</span>
+            <span id="percentText">0%</span>
+          </div>
+
+          <div class="progress-track">
+            <div id="progressFill" class="progress-fill"></div>
+          </div>
+
+          <div id="instructionText" class="small-note">Keep holding to send</div>
+
+          <div id="demoResult" class="demo-result neutral">
+            No emergency signal has been sent. This is only a local test.
+          </div>
+
+          <div class="control-row">
+            <button id="resetButton" class="secondary-btn">Reset Test</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2 style="margin-top:0;">Emergency status options</h2>
+        <p class="helper">
+          These are here for layout testing only. They do not trigger anything.
+        </p>
+
+        <div class="actions-grid">
+          <button class="quick-action" data-status="I Need Help">I Need Help</button>
+          <button class="quick-action" data-status="Emergency / SOS">Emergency / SOS</button>
+          <button class="quick-action" data-status="I Am Lost">I Am Lost</button>
+          <button class="quick-action" data-status="I Am Injured">I Am Injured</button>
+          <button class="quick-action" data-status="I Am Staying Put">I Am Staying Put</button>
+          <button class="quick-action" data-status="I Am Moving">I Am Moving</button>
+        </div>
+
+        <div id="selectedStatus" class="selected-status">
+          Selected status: none
+        </div>
+      </div>
+
+      <div class="page-indicator">
+        <div class="page-text">Page 3 of 5: Emergency</div>
+        <div class="dots">
+          <div class="dot"></div>
+          <div class="dot"></div>
+          <div class="dot active"></div>
+          <div class="dot"></div>
+          <div class="dot"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottom-nav">
+      <button class="nav-btn">Home</button>
+      <button class="nav-btn">Map</button>
+      <button class="nav-btn active">Emergency</button>
+      <button class="nav-btn">SITREP</button>
+      <button class="nav-btn">More</button>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================
+    // EASY SETTING:
+    // Change this from 3 to 2 later if we decide 2 seconds is better.
+    // =========================================================
+    const HOLD_SECONDS = 2;
+
+    const sosButton = document.getElementById("sosButton");
+    const resetButton = document.getElementById("resetButton");
+    const statusTitle = document.getElementById("statusTitle");
+    const countdownText = document.getElementById("countdownText");
+    const percentText = document.getElementById("percentText");
+    const progressFill = document.getElementById("progressFill");
+    const instructionText = document.getElementById("instructionText");
+    const demoResult = document.getElementById("demoResult");
+    const selectedStatus = document.getElementById("selectedStatus");
+    const quickActions = document.querySelectorAll(".quick-action");
+
+    let isHolding = false;
+    let holdStartedAt = 0;
+    let rafId = null;
+    let holdCompleted = false;
+    let activePointerId = null;
+
+    function setReadyState() {
+      sosButton.textContent = `HOLD ${HOLD_SECONDS} SECONDS TO SEND SOS`;
+      sosButton.classList.remove("holding", "sent");
+      statusTitle.textContent = "Ready to test";
+      countdownText.textContent = "Waiting for hold";
+      percentText.textContent = "0%";
+      progressFill.style.width = "0%";
+      instructionText.textContent = "Keep holding to send";
+      demoResult.className = "demo-result neutral";
+      demoResult.textContent = "No emergency signal has been sent. This is only a local test.";
+      holdCompleted = false;
+    }
+
+    function updateHold(now) {
+      if (!isHolding) return;
+
+      const elapsedMs = now - holdStartedAt;
+      const totalMs = HOLD_SECONDS * 1000;
+      const progress = Math.min(elapsedMs / totalMs, 1);
+      const percent = Math.round(progress * 100);
+      const remainingSeconds = Math.max(0, HOLD_SECONDS - elapsedMs / 1000);
+      const countdown = Math.max(1, Math.ceil(remainingSeconds));
+
+      progressFill.style.width = `${percent}%`;
+      percentText.textContent = `${percent}%`;
+
+      if (progress < 1) {
+        statusTitle.textContent = `Holding... ${countdown}`;
+        countdownText.textContent = `Holding... ${countdown}`;
+        instructionText.textContent = "Keep holding to send";
+        demoResult.className = "demo-result neutral";
+        demoResult.textContent = "Finger still down. Keep holding until the bar reaches 100%.";
+        rafId = requestAnimationFrame(updateHold);
+      } else {
+        finishHold();
+      }
+    }
+
+    function startHold(e) {
+      e.preventDefault();
+      if (isHolding) return;
+
+      isHolding = true;
+      holdCompleted = false;
+      activePointerId = e.pointerId ?? null;
+      holdStartedAt = performance.now();
+
+      try {
+        if (activePointerId !== null) {
+          sosButton.setPointerCapture(activePointerId);
+        }
+      } catch (err) {
+        // Safe to ignore if capture is unavailable.
+      }
+
+      sosButton.classList.add("holding");
+      statusTitle.textContent = `Holding... ${HOLD_SECONDS}`;
+      countdownText.textContent = `Holding... ${HOLD_SECONDS}`;
+      percentText.textContent = "0%";
+      progressFill.style.width = "0%";
+      instructionText.textContent = "Keep holding to send";
+      demoResult.className = "demo-result neutral";
+      demoResult.textContent = "Finger detected. Hold steady...";
+      rafId = requestAnimationFrame(updateHold);
+    }
+
+    function finishHold() {
+      isHolding = false;
+      holdCompleted = true;
+
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+
+      progressFill.style.width = "100%";
+      percentText.textContent = "100%";
+      statusTitle.textContent = "Sending SOS...";
+      countdownText.textContent = "Sending SOS...";
+      instructionText.textContent = "Emergency hold completed";
+      demoResult.className = "demo-result sent";
+      demoResult.textContent = "Test complete. In the real app, the emergency action would trigger now.";
+      sosButton.classList.remove("holding");
+      sosButton.classList.add("sent");
+      sosButton.textContent = "SOS TEST COMPLETE";
+    }
+
+    function cancelHold() {
+      isHolding = false;
+
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+
+      sosButton.classList.remove("holding");
+
+      if (!holdCompleted) {
+        statusTitle.textContent = "SOS canceled";
+        countdownText.textContent = "Hold released early";
+        percentText.textContent = "0%";
+        progressFill.style.width = "0%";
+        instructionText.textContent = "No emergency signal sent";
+        demoResult.className = "demo-result cancel";
+        demoResult.textContent = "You released before completion, so the SOS action was canceled.";
+      }
+    }
+
+    function releaseHold(e) {
+      if (!isHolding) return;
+
+      if (activePointerId !== null && e.pointerId !== undefined && e.pointerId !== activePointerId) {
+        return;
+      }
+
+      if (!holdCompleted) {
+        cancelHold();
+      }
+    }
+
+    function resetTest() {
+      isHolding = false;
+      holdCompleted = false;
+      activePointerId = null;
+
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+
+      setReadyState();
+    }
+
+    sosButton.addEventListener("pointerdown", startHold);
+    sosButton.addEventListener("pointerup", releaseHold);
+    sosButton.addEventListener("pointercancel", releaseHold);
+    sosButton.addEventListener("lostpointercapture", () => {
+      if (isHolding && !holdCompleted) {
+        cancelHold();
+      }
+    });
+
+    resetButton.addEventListener("click", resetTest);
+
+    quickActions.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        quickActions.forEach((b) => b.classList.remove("selected"));
+        btn.classList.add("selected");
+        selectedStatus.textContent = `Selected status: ${btn.dataset.status}`;
+      });
+    });
+
+    setReadyState();
+  </script>
+</body>
+</html>
