@@ -1,8 +1,9 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <title>BEAST Scout</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 
@@ -46,6 +47,11 @@
       font-weight: bold;
       border-radius: 14px;
       border: none;
+      cursor: pointer;
+    }
+
+    button:active {
+      transform: scale(0.98);
     }
 
     .start {
@@ -83,6 +89,21 @@
       color: white;
     }
 
+    .firebase-good {
+      background: #1f7a3a;
+      color: white;
+    }
+
+    .firebase-bad {
+      background: #8b1e1e;
+      color: white;
+    }
+
+    .firebase-wait {
+      background: #6b4e16;
+      color: white;
+    }
+
     #map {
       height: 360px;
       width: 100%;
@@ -101,6 +122,20 @@
       padding: 12px;
       border-radius: 10px;
       font-size: 14px;
+      overflow-x: auto;
+    }
+
+    .small {
+      font-size: 14px;
+      color: #cbd5e1;
+    }
+
+    .decision-check {
+      border-top: 1px solid #2f4654;
+      margin-top: 12px;
+      padding-top: 12px;
+      font-size: 16px;
+      line-height: 1.5;
     }
   </style>
 </head>
@@ -111,6 +146,13 @@
     <h1>BEAST Scout</h1>
     <p>Backcountry Emergency Assessment and Safety Tool</p>
     <p>Scout View</p>
+    <p class="small">Prototype only. This page sends test data to Firebase. It does not contact emergency services.</p>
+  </div>
+
+  <div id="firebaseCard" class="card firebase-wait">
+    <h2>Firebase Connection</h2>
+    <p><strong>Status:</strong> <span id="firebaseStatus">Connecting...</span></p>
+    <p><strong>Active Incident:</strong> <span id="incidentId">None yet</span></p>
   </div>
 
   <div class="card">
@@ -126,7 +168,7 @@
 
   <div class="card">
     <h2>2. Emergency Actions</h2>
-    <p>Pressing any emergency button also starts live tracking automatically.</p>
+    <p>Pressing any emergency button also starts live tracking automatically and sends the emergency level to Firebase.</p>
 
     <button class="help" onclick="activateEmergency('Tier 1: Need Help')">Tier 1: Need Help</button>
     <button class="urgent" onclick="activateEmergency('Tier 2: Urgent Help')">Tier 2: Urgent Help</button>
@@ -164,27 +206,140 @@
     <pre id="sitrep">No SITREP generated yet.</pre>
   </div>
 
+  <div class="card">
+    <h2>Decision Check</h2>
+    <p>Clean Scout sender page: live GPS, emergency level, breadcrumbs, and SITREP sent to Firebase.</p>
+    <div class="decision-check">
+      ☐ I like it<br />
+      ☐ In the middle / needs work<br />
+      ☐ I do not like it
+    </div>
+  </div>
+
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
   <script>
+    // =========================================================
+    // FIREBASE CONFIG
+    //
+    // This matches the prior working BEAST Firebase pattern:
+    // incidentCounter/YYYYMMDD
+    // incidents/BEAST-YYYYMMDD-001
+    // activeAlert
+    // =========================================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyC3CTeSgEoHxw7HCjRDauTCDtGtFXEgNH8",
+      authDomain: "beast-scout.firebaseapp.com",
+      databaseURL: "https://beast-scout-default-rtdb.firebaseio.com",
+      projectId: "beast-scout"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
     let watchId = null;
     let breadcrumbs = [];
     let trackingStartTime = null;
     let totalDistanceMeters = 0;
     let emergencyLevel = "None";
+    let batteryPercent = null;
+    let activeIncidentId = null;
+    let activeIncidentRef = null;
+    let lastPoint = null;
+    let firebaseConnected = false;
 
     let map = L.map("map").setView([30.6333, -97.6780], 15);
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19
+      maxZoom: 19,
+      attribution: "© OpenStreetMap contributors"
     }).addTo(map);
 
     let marker = null;
-    let pathLine = L.polyline([], { weight: 5 }).addTo(map);
+    let accuracyCircle = null;
+    let pathLine = L.polyline([], {
+      weight: 5,
+      color: "#2ecc71"
+    }).addTo(map);
 
     checkBattery();
+    watchFirebaseConnection();
 
-    function startTracking() {
+    function watchFirebaseConnection() {
+      db.ref(".info/connected").on("value", function(snapshot) {
+        firebaseConnected = snapshot.val() === true;
+
+        const firebaseCard = document.getElementById("firebaseCard");
+        const firebaseStatus = document.getElementById("firebaseStatus");
+
+        if (firebaseConnected) {
+          firebaseCard.className = "card firebase-good";
+          firebaseStatus.textContent = "Connected";
+        } else {
+          firebaseCard.className = "card firebase-bad";
+          firebaseStatus.textContent = "Disconnected or waiting";
+        }
+      });
+    }
+
+    async function createIncidentId() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const day = String(now.getDate()).padStart(2, "0");
+      const dateCode = `${year}${month}${day}`;
+
+      const counterRef = db.ref(`incidentCounter/${dateCode}`);
+
+      const newNumber = await counterRef.transaction(function(currentValue) {
+        return (currentValue || 0) + 1;
+      });
+
+      const count = newNumber.snapshot.val();
+      const paddedNumber = String(count).padStart(3, "0");
+
+      return `BEAST-${dateCode}-${paddedNumber}`;
+    }
+
+    async function ensureActiveIncident() {
+      if (activeIncidentId && activeIncidentRef) {
+        return activeIncidentId;
+      }
+
+      activeIncidentId = await createIncidentId();
+      activeIncidentRef = db.ref(`incidents/${activeIncidentId}`);
+
+      document.getElementById("incidentId").textContent = activeIncidentId;
+
+      const createdPayload = {
+        incidentId: activeIncidentId,
+        status: "ACTIVE",
+        alertActive: true,
+        missionStarted: true,
+        emergencyLevel: emergencyLevel,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        source: "BEAST Scout app.html",
+        note: "Prototype test incident. Not connected to emergency services."
+      };
+
+      await activeIncidentRef.set(createdPayload);
+
+      await db.ref("activeAlert").set({
+        incidentId: activeIncidentId,
+        status: "ACTIVE",
+        alertActive: true,
+        emergencyLevel: emergencyLevel,
+        updatedAt: new Date().toISOString()
+      });
+
+      return activeIncidentId;
+    }
+
+    async function startTracking() {
       if (!navigator.geolocation) {
         alert("GPS is not supported on this device.");
         return;
@@ -194,8 +349,18 @@
         return;
       }
 
+      try {
+        await ensureActiveIncident();
+      } catch (error) {
+        alert("Firebase incident setup failed: " + error.message);
+        document.getElementById("status").textContent = "Firebase setup failed";
+        return;
+      }
+
       trackingStartTime = trackingStartTime || new Date();
       document.getElementById("status").textContent = "Live tracking active";
+
+      await writeIncidentStatus("Live tracking active");
 
       watchId = navigator.geolocation.watchPosition(
         savePosition,
@@ -208,28 +373,36 @@
       );
     }
 
-    function stopTracking() {
+    async function stopTracking() {
       if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
       }
 
       document.getElementById("status").textContent = "Tracking stopped";
+
+      await writeIncidentStatus("Tracking stopped");
     }
 
-    function resetTracking() {
-      stopTracking();
+    async function resetTracking() {
+      await stopTracking();
 
       breadcrumbs = [];
       trackingStartTime = null;
       totalDistanceMeters = 0;
       emergencyLevel = "None";
+      lastPoint = null;
 
       pathLine.setLatLngs([]);
 
       if (marker !== null) {
         map.removeLayer(marker);
         marker = null;
+      }
+
+      if (accuracyCircle !== null) {
+        map.removeLayer(accuracyCircle);
+        accuracyCircle = null;
       }
 
       document.getElementById("status").textContent = "Not tracking";
@@ -245,41 +418,87 @@
       document.getElementById("heading").textContent = "Unknown";
       document.getElementById("lastUpdate").textContent = "Waiting...";
       document.getElementById("sitrep").textContent = "No SITREP generated yet.";
+
+      if (activeIncidentRef) {
+        await activeIncidentRef.update({
+          status: "RESET_LOCAL_TEST",
+          alertActive: false,
+          missionStarted: false,
+          emergencyLevel: "None",
+          updatedAt: new Date().toISOString()
+        });
+      }
+
+      await db.ref("activeAlert").update({
+        status: "RESET_LOCAL_TEST",
+        alertActive: false,
+        emergencyLevel: "None",
+        updatedAt: new Date().toISOString()
+      });
+
+      activeIncidentId = null;
+      activeIncidentRef = null;
+      document.getElementById("incidentId").textContent = "None yet";
     }
 
-    function activateEmergency(level) {
+    async function activateEmergency(level) {
       emergencyLevel = level;
       document.getElementById("emergencyLevel").textContent = emergencyLevel;
 
-      startTracking();
+      try {
+        await ensureActiveIncident();
 
-      document.getElementById("status").textContent =
-        emergencyLevel + " sent. Live tracking active.";
+        await activeIncidentRef.update({
+          emergencyLevel: emergencyLevel,
+          alertActive: true,
+          status: "ACTIVE",
+          updatedAt: new Date().toISOString()
+        });
 
-      generateSitrep();
+        await db.ref("activeAlert").set({
+          incidentId: activeIncidentId,
+          status: "ACTIVE",
+          alertActive: true,
+          emergencyLevel: emergencyLevel,
+          updatedAt: new Date().toISOString()
+        });
+
+        startTracking();
+
+        document.getElementById("status").textContent =
+          emergencyLevel + " sent. Live tracking active.";
+
+        generateSitrep();
+      } catch (error) {
+        alert("Emergency Firebase update failed: " + error.message);
+      }
     }
 
-    function savePosition(position) {
+    async function savePosition(position) {
       let now = new Date();
 
       let point = {
         time: now.toISOString(),
+        timestamp: now.toISOString(),
         latitude: position.coords.latitude,
         longitude: position.coords.longitude,
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
         accuracy: position.coords.accuracy,
         altitude: position.coords.altitude,
         altitudeAccuracy: position.coords.altitudeAccuracy,
         speed: position.coords.speed,
         heading: position.coords.heading,
+        battery: batteryPercent,
         emergencyLevel: emergencyLevel
       };
 
       if (breadcrumbs.length > 0) {
-        let lastPoint = breadcrumbs[breadcrumbs.length - 1];
+        let previousPoint = breadcrumbs[breadcrumbs.length - 1];
 
         let stepDistance = calculateDistanceMeters(
-          lastPoint.latitude,
-          lastPoint.longitude,
+          previousPoint.latitude,
+          previousPoint.longitude,
           point.latitude,
           point.longitude
         );
@@ -288,6 +507,7 @@
       }
 
       breadcrumbs.push(point);
+      lastPoint = point;
 
       let mapPoint = [point.latitude, point.longitude];
 
@@ -300,7 +520,101 @@
         marker.setLatLng(mapPoint);
       }
 
+      marker.bindPopup(
+        "BEAST Scout<br>" +
+        point.latitude.toFixed(6) + ", " +
+        point.longitude.toFixed(6)
+      );
+
+      if (accuracyCircle !== null) {
+        map.removeLayer(accuracyCircle);
+        accuracyCircle = null;
+      }
+
+      if (Number.isFinite(Number(point.accuracy))) {
+        accuracyCircle = L.circle(mapPoint, {
+          radius: point.accuracy,
+          color: "#3498db",
+          fillColor: "#3498db",
+          fillOpacity: 0.14,
+          weight: 2
+        }).addTo(map);
+      }
+
       updateDisplay(point);
+      await writePointToFirebase(point);
+    }
+
+    async function writePointToFirebase(point) {
+      try {
+        await ensureActiveIncident();
+
+        const currentLocationPayload = {
+          latitude: point.latitude,
+          longitude: point.longitude,
+          lat: point.latitude,
+          lng: point.longitude,
+          accuracy: point.accuracy,
+          altitude: point.altitude,
+          altitudeAccuracy: point.altitudeAccuracy,
+          speed: point.speed,
+          heading: point.heading,
+          battery: batteryPercent,
+          emergencyLevel: emergencyLevel,
+          time: point.time,
+          timestamp: point.timestamp
+        };
+
+        await activeIncidentRef.update({
+          currentLocation: currentLocationPayload,
+          lastKnownLocation: currentLocationPayload,
+          emergencyLevel: emergencyLevel,
+          status: "ACTIVE",
+          alertActive: true,
+          missionStarted: true,
+          updatedAt: new Date().toISOString(),
+          breadcrumbCount: breadcrumbs.length,
+          distanceMiles: totalDistanceMeters / 1609.344
+        });
+
+        await activeIncidentRef.child("breadcrumbs").push(currentLocationPayload);
+
+        await db.ref("activeAlert").set({
+          incidentId: activeIncidentId,
+          status: "ACTIVE",
+          alertActive: true,
+          emergencyLevel: emergencyLevel,
+          currentLocation: currentLocationPayload,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (error) {
+        document.getElementById("firebaseStatus").textContent =
+          "Write failed: " + error.message;
+      }
+    }
+
+    async function writeIncidentStatus(statusText) {
+      if (!activeIncidentRef) {
+        return;
+      }
+
+      try {
+        await activeIncidentRef.update({
+          trackingStatus: statusText,
+          emergencyLevel: emergencyLevel,
+          updatedAt: new Date().toISOString()
+        });
+
+        await db.ref("activeAlert").update({
+          incidentId: activeIncidentId,
+          trackingStatus: statusText,
+          emergencyLevel: emergencyLevel,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (error) {
+        document.getElementById("firebaseStatus").textContent =
+          "Status write failed: " + error.message;
+      }
     }
 
     function updateDisplay(point) {
@@ -324,21 +638,25 @@
       document.getElementById("heading").textContent =
         point.heading === null ? "Unknown" : point.heading.toFixed(0) + " degrees";
 
-      document.getElementById("lastUpdate").textContent = new Date(point.time).toLocaleTimeString();
+      document.getElementById("lastUpdate").textContent =
+        new Date(point.time).toLocaleTimeString();
     }
 
-    function generateSitrep() {
+    async function generateSitrep() {
       if (breadcrumbs.length === 0) {
         document.getElementById("sitrep").textContent =
           "No location data available yet.";
         return;
       }
 
-      let lastPoint = breadcrumbs[breadcrumbs.length - 1];
+      let lastKnown = breadcrumbs[breadcrumbs.length - 1];
       let distanceMiles = totalDistanceMeters / 1609.344;
 
       let sitrep =
 `BEAST AUTO SITREP
+
+Incident ID:
+${activeIncidentId || "Not created yet"}
 
 Emergency Level:
 ${emergencyLevel}
@@ -347,17 +665,17 @@ Tracking Status:
 ${watchId === null ? "Not tracking" : "Live tracking active"}
 
 Last Known Location:
-${lastPoint.latitude.toFixed(6)}
-${lastPoint.longitude.toFixed(6)}
+${lastKnown.latitude.toFixed(6)}
+${lastKnown.longitude.toFixed(6)}
 
 GPS Accuracy:
-${lastPoint.accuracy.toFixed(1)} m
+${lastKnown.accuracy.toFixed(1)} m
 
 Altitude:
-${lastPoint.altitude === null ? "Not available" : lastPoint.altitude.toFixed(1) + " m"}
+${lastKnown.altitude === null ? "Not available" : lastKnown.altitude.toFixed(1) + " m"}
 
 Altitude Accuracy:
-${lastPoint.altitudeAccuracy === null ? "Not available" : lastPoint.altitudeAccuracy.toFixed(1) + " m"}
+${lastKnown.altitudeAccuracy === null ? "Not available" : lastKnown.altitudeAccuracy.toFixed(1) + " m"}
 
 Distance Traveled:
 ${distanceMiles.toFixed(2)} mi
@@ -365,10 +683,34 @@ ${distanceMiles.toFixed(2)} mi
 Saved Breadcrumb Points:
 ${breadcrumbs.length}
 
+Battery:
+${batteryPercent === null ? "Not available" : batteryPercent + "%"}
+
 Last Update:
-${new Date(lastPoint.time).toLocaleString()}`;
+${new Date(lastKnown.time).toLocaleString()}
+
+BEAST Safety Note:
+This is an estimate based on available Scout data. Do not assume location is exact without checking GPS accuracy, last update time, terrain, weather, and user condition.`;
 
       document.getElementById("sitrep").textContent = sitrep;
+
+      try {
+        await ensureActiveIncident();
+
+        await activeIncidentRef.update({
+          sitrep: sitrep,
+          updatedAt: new Date().toISOString()
+        });
+
+        await db.ref("activeAlert").update({
+          incidentId: activeIncidentId,
+          sitrep: sitrep,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (error) {
+        document.getElementById("firebaseStatus").textContent =
+          "SITREP write failed: " + error.message;
+      }
     }
 
     function downloadBreadcrumbs() {
@@ -377,10 +719,10 @@ ${new Date(lastPoint.time).toLocaleString()}`;
         return;
       }
 
-      let csv = "time,latitude,longitude,accuracy,altitude,altitudeAccuracy,speed,heading,emergencyLevel\n";
+      let csv = "time,latitude,longitude,accuracy,altitude,altitudeAccuracy,speed,heading,battery,emergencyLevel,incidentId\n";
 
       breadcrumbs.forEach(point => {
-        csv += `${point.time},${point.latitude},${point.longitude},${point.accuracy},${point.altitude},${point.altitudeAccuracy},${point.speed},${point.heading},${point.emergencyLevel}\n`;
+        csv += `${point.time},${point.latitude},${point.longitude},${point.accuracy},${point.altitude},${point.altitudeAccuracy},${point.speed},${point.heading},${point.battery},${point.emergencyLevel},${activeIncidentId}\n`;
       });
 
       let blob = new Blob([csv], { type: "text/csv" });
@@ -429,7 +771,7 @@ ${new Date(lastPoint.time).toLocaleString()}`;
     }
 
     function updateBatteryDisplay(battery) {
-      let batteryPercent = Math.round(battery.level * 100);
+      batteryPercent = Math.round(battery.level * 100);
       document.getElementById("battery").textContent = batteryPercent + "%";
     }
 
